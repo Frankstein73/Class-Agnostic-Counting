@@ -105,19 +105,19 @@ class IterativeAdaptationModule(nn.Module):
         Ql = Qs
         for i in range(self.iterations):
             Ql_norm = self.layernorm1(Ql)
-            Qla = self.dropout(self.mha1(Ql_norm, Qa))+Ql
+            Qla = self.dropout(self.mha1(Ql_norm, Qa)) + Ql
             Qla_norm = self.layernorm2(Qla)
-            Qlaf = self.dropout(self.mha2(Qla_norm, Fe))+Qla
+            Qlaf = self.dropout(self.mha2(Qla_norm, Fe)) + Qla
             Qlaf_norm = self.layernorm3(Qlaf)
-            Ql = self.dropout(self.fnn(Qlaf_norm))+Qlaf
+            Ql = self.dropout(self.fnn(Qlaf_norm)) + Qlaf
         return Ql
 
+
 class OPE(nn.Module):
-    def __init__(self, d, s, iterations, spatial_scale, n_boxes = 3, roi=roi_pool):
+    def __init__(self, d, s, iterations, n_boxes=3, roi=roi_pool):
         super(OPE, self).__init__()
         self.s = s
         self.d = d
-        self.spatial_scale = spatial_scale
         self.iterations = iterations
         self.n_boxes = n_boxes
         self.roi = roi
@@ -129,9 +129,13 @@ class OPE(nn.Module):
             nn.Linear(d, s * s * d),
             nn.ReLU(),
         )
-        self.iam = IterativeAdaptationModule(8, d, d, d, 1024, s * s * n_boxes, iterations)
+        self.iam = IterativeAdaptationModule(
+            8, d, d, d, 1024, s * s * n_boxes, iterations
+        )
 
-    def forward(self, feature: torch.Tensor, boxes: list[torch.Tensor]):
+    def forward(
+        self, feature: torch.Tensor, boxes: list[torch.Tensor], spatial_scale: float
+    ):
         # feature: (batch_size, d, h, w)
         # boxes: list of Tensor(n_boxes, 4)
         n_boxes, _ = boxes[0].size()
@@ -139,7 +143,8 @@ class OPE(nn.Module):
         batch_size, d, h, w = feature.size()
         # (batch_size, n_boxes*s*s, d)
         Qa = (
-            self.roi(feature, boxes, [self.s, self.s], spatial_scale=self.spatial_scale)
+            # (batch_size*n, d, s, s)
+            self.roi(feature, boxes, [self.s, self.s], spatial_scale=spatial_scale)
             .permute(0, 2, 3, 1)
             .reshape(batch_size, n_boxes * self.s * self.s, d)
         )
@@ -158,11 +163,40 @@ class OPE(nn.Module):
         return out
 
 
-img = torch.randn(2, 512, 112, 112)
+class LOCA(nn.Module):
+    def __init__(self, d, s, roi, iterations=3, n_boxes=3):
+        super(LOCA, self).__init__()
+        self.d = d
+        self.s = s
+        self.roi = roi
+        self.iterations = iterations
+        self.encoder = Encoder(d)
+        self.n_boxes = n_boxes
+        self.ope = OPE(d=d, s=s, iterations=iterations, n_boxes=3, roi=roi)
+
+    def forward(self, img, boxes: list[torch.Tensor]):
+        # img: (batch_size, 3, H, W)
+        # feature: (batch_size, d, h, w)
+        feature = self.encoder(img)
+        batch_size, d, h, w = feature.size()
+        spatial_scale = feature.size(2) / img.size(2)
+        # prototype: (batch_size, n_boxes*s*s, d)
+        prototype = self.ope(feature, boxes, spatial_scale)
+        # prototype: (batch_size, n_boxes, d, 1, s, s)
+        prototype = prototype.reshape(batch_size, self.n_boxes, self.s, self.s, self.d).permute(0, 1, 4, 2, 3).unsqueeze(3)
+        similarity_maps = []
+        for i in range(batch_size):
+            for j in range(self.n_boxes):
+                similarity = F.conv2d(feature[i], prototype[i, j], groups=self.d, padding=(self.s - 1)//2)
+                assert similarity.shape == (self.d, h, w)
+                similarity_maps.append(similarity)
+        similarity_maps = torch.stack(similarity_maps, dim=0).reshape(batch_size, self.n_boxes, self.d, h, w)
+
+
+img = torch.randn(2, 3, 512, 512)
 boxes = [
     torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
     torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
-    
 ]
-ope = OPE(512, 7, 3, 1)
-print(ope(img, boxes).size())
+loca = LOCA(256, 7, roi_pool)
+loca(img, boxes)
