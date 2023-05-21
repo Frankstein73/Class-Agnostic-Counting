@@ -162,10 +162,34 @@ class OPE(nn.Module):
         out = self.iam(Qs, Qa, Fe)
         return out
 
+class Decoder(nn.Module):
+    def __init__(self, d, h_out, w_out):
+        super(Decoder, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(d, 128, 3, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.LeakyReLU(),)
+        self.upsample = nn.Upsample(size=(h_out, w_out), mode="bilinear")
+        self.conv1x1 = nn.Conv2d(32, 1, 1)
+        self.leakyrelu = nn.LeakyReLU()
+        
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.upsample(x)
+        x = self.conv1x1(x)
+        x = self.leakyrelu(x)
+        return x
+        
+    
 
 class LOCA(nn.Module):
-    def __init__(self, d, s, roi, iterations=3, n_boxes=3):
+    def __init__(self, h_in, w_in, d, s, roi, iterations=3, n_boxes=3):
         super(LOCA, self).__init__()
+        self.h_in = h_in
+        self.w_in = w_in
         self.d = d
         self.s = s
         self.roi = roi
@@ -173,6 +197,7 @@ class LOCA(nn.Module):
         self.encoder = Encoder(d)
         self.n_boxes = n_boxes
         self.ope = OPE(d=d, s=s, iterations=iterations, n_boxes=3, roi=roi)
+        self.decoder = Decoder(d, self.h_in, self.w_in)
 
     def forward(self, img, boxes: list[torch.Tensor]):
         # img: (batch_size, 3, H, W)
@@ -191,6 +216,10 @@ class LOCA(nn.Module):
                 assert similarity.shape == (self.d, h, w)
                 similarity_maps.append(similarity)
         similarity_maps = torch.stack(similarity_maps, dim=0).reshape(batch_size, self.n_boxes, self.d, h, w)
+        response_maps = similarity_maps.max(dim=1, keepdim=False)[0]
+        density_maps = self.decoder(response_maps)
+        return density_maps
+        
 
 
 img = torch.randn(2, 3, 512, 512)
@@ -198,5 +227,5 @@ boxes = [
     torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
     torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
 ]
-loca = LOCA(256, 7, roi_pool)
-loca(img, boxes)
+loca = LOCA(512, 512, 256, 7, roi_pool)
+print(loca(img, boxes).shape)
