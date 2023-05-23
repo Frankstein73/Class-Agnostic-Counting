@@ -5,6 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 from torchvision.models import resnet50
 from torchvision.ops import roi_align, roi_pool
+import torchvision
 
 
 class MHABlock(nn.Module):
@@ -54,9 +55,10 @@ class MHABlock(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, d):
         super(Encoder, self).__init__()
-        resnet = resnet50()
+        resnet = resnet50(weights=torchvision.models.ResNet50_Weights.DEFAULT)
         modules = list(resnet.children())[:-3]
         self.resnet = nn.Sequential(*modules)
+        # self.resnet.requires_grad_(False)
         self.upsample = nn.ConvTranspose2d(
             1024, 512, kernel_size=2, stride=2, padding=0
         )

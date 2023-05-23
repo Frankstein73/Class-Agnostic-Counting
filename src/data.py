@@ -144,7 +144,7 @@ def load_fsc147(anno_file, data_split_file, im_dir, gt_dir):
             density = np.load(density_path).astype('float32')    
             sample = {'image':image,'lines_boxes':rects,'gt_density':density}
             transformed_sample = get_transform(split)(sample)
-            transformed_sample['count'] = torch.Tensor([dots.shape[0]])
+            transformed_sample['count'] = dots.shape[0]
             data[split].append(transformed_sample)
 
             pbar.update(1)
