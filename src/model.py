@@ -103,6 +103,7 @@ class IterativeAdaptationModule(nn.Module):
         # Qa: (batch_size, n_boxes*s*s, d)
         # Fe: (batch_size, h*w, d)
         Ql = Qs
+        Ql_list = []
         for i in range(self.iterations):
             Ql_norm = self.layernorm1(Ql)
             Qla = self.dropout(self.mha1(Ql_norm, Qa)) + Ql
@@ -110,7 +111,9 @@ class IterativeAdaptationModule(nn.Module):
             Qlaf = self.dropout(self.mha2(Qla_norm, Fe)) + Qla
             Qlaf_norm = self.layernorm3(Qlaf)
             Ql = self.dropout(self.fnn(Qlaf_norm)) + Qlaf
-        return Ql
+            Ql_list.append(Ql)
+        # (batch_size, L+1, n_boxes*s*s, d)
+        return Ql_list
 
 
 class OPE(nn.Module):
@@ -162,6 +165,7 @@ class OPE(nn.Module):
         out = self.iam(Qs, Qa, Fe)
         return out
 
+
 class Decoder(nn.Module):
     def __init__(self, d, h_out, w_out):
         super(Decoder, self).__init__()
@@ -171,19 +175,19 @@ class Decoder(nn.Module):
             nn.Conv2d(128, 64, 3, padding=1),
             nn.LeakyReLU(),
             nn.Conv2d(64, 32, 3, padding=1),
-            nn.LeakyReLU(),)
+            nn.LeakyReLU(),
+        )
         self.upsample = nn.Upsample(size=(h_out, w_out), mode="bilinear")
         self.conv1x1 = nn.Conv2d(32, 1, 1)
         self.leakyrelu = nn.LeakyReLU()
-        
+
     def forward(self, x):
         x = self.conv(x)
         x = self.upsample(x)
         x = self.conv1x1(x)
         x = self.leakyrelu(x)
         return x
-        
-    
+
 
 class LOCA(nn.Module):
     def __init__(self, h_in, w_in, d, s, roi, iterations=3, n_boxes=3):
@@ -205,28 +209,51 @@ class LOCA(nn.Module):
         feature = self.encoder(img)
         batch_size, d, h, w = feature.size()
         spatial_scale = feature.size(2) / img.size(2)
-        # prototype: (batch_size, n_boxes*s*s, d)
+        # prototype: [(batch_size, n_boxes*s*s, d)]
         prototype = self.ope(feature, boxes, spatial_scale)
-        # prototype: (batch_size, n_boxes, d, 1, s, s)
-        prototype = prototype.reshape(batch_size, self.n_boxes, self.s, self.s, self.d).permute(0, 1, 4, 2, 3).unsqueeze(3)
-        similarity_maps = []
-        for i in range(batch_size):
-            for j in range(self.n_boxes):
-                similarity = F.conv2d(feature[i], prototype[i, j], groups=self.d, padding=(self.s - 1)//2)
-                assert similarity.shape == (self.d, h, w)
-                similarity_maps.append(similarity)
-        similarity_maps = torch.stack(similarity_maps, dim=0).reshape(batch_size, self.n_boxes, self.d, h, w)
-        response_maps = similarity_maps.max(dim=1, keepdim=False)[0]
-        density_maps = self.decoder(response_maps)
-        return density_maps
-        
+        if self.training is False:
+            prototype = [prototype[-1]]
+        # prototype: [(batch_size, n_boxes, d, 1, s, s)]
+        prototype = [
+            ptype.reshape(batch_size, self.n_boxes, self.s, self.s, self.d)
+            .permute(0, 1, 4, 2, 3)
+            .unsqueeze(3)
+            for ptype in prototype
+        ]
+        density_maps_list = []
+        for ptype in prototype:
+            similarity_maps = []
+            for i in range(batch_size):
+                for j in range(self.n_boxes):
+                    similarity = F.conv2d(
+                        feature[i],
+                        ptype[i, j],
+                        groups=self.d,
+                        padding=(self.s - 1) // 2,
+                    )
+                    assert similarity.shape == (self.d, h, w)
+                    similarity_maps.append(similarity)
+            similarity_maps = torch.stack(similarity_maps, dim=0).reshape(
+                batch_size, self.n_boxes, self.d, h, w
+            )
+            response_maps = similarity_maps.max(dim=1, keepdim=False)[0]
+            density_maps = self.decoder(response_maps)
+            density_maps_list.append(density_maps)
+        return density_maps_list
+
+
 if __name__ == "__main__":
     img = torch.randn(2, 3, 512, 512)
     boxes = [
-        torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
-        torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
+        torch.tensor(
+            [[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32
+        ),
+        torch.tensor(
+            [[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32
+        ),
     ]
     loca = LOCA(512, 512, 256, 7, roi_pool)
-    print(loca(img, boxes).shape)
-
-
+    # loca.train()
+    print(len(loca(img, boxes)))
+    loca.eval()
+    print(len(loca(img, boxes)))
