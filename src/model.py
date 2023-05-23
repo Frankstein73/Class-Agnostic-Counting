@@ -112,7 +112,7 @@ class IterativeAdaptationModule(nn.Module):
             Qlaf_norm = self.layernorm3(Qlaf)
             Ql = self.dropout(self.fnn(Qlaf_norm)) + Qlaf
             Ql_list.append(Ql)
-        # (batch_size, L+1, n_boxes*s*s, d)
+        # (batch_size, L, n_boxes*s*s, d)
         return Ql_list
 
 

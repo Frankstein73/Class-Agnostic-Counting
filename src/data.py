@@ -6,6 +6,7 @@ from torchvision import transforms
 import torch
 import cv2
 import lightning.pytorch as pl
+import random
 
 class ResizeImage(object):
     """
@@ -122,12 +123,14 @@ def load_fsc147(anno_file, data_split_file, im_dir, gt_dir):
         im_ids = data_split[split]
         pbar = tqdm.tqdm(total=len(im_ids))
         pbar.set_description('Loading %s' % split)
+        
         for im_id in im_ids:
             anno = annotations[im_id]
             bboxes = anno['box_examples_coordinates']
             dots = np.array(anno['points'])
 
             rects = list()
+            bboxes = random.sample(bboxes, 3)
             for bbox in bboxes:
                 x1 = bbox[0][0]
                 y1 = bbox[0][1]
@@ -141,6 +144,7 @@ def load_fsc147(anno_file, data_split_file, im_dir, gt_dir):
             density = np.load(density_path).astype('float32')    
             sample = {'image':image,'lines_boxes':rects,'gt_density':density}
             transformed_sample = get_transform(split)(sample)
+            transformed_sample['count'] = torch.Tensor([dots.shape[0]])
             data[split].append(transformed_sample)
 
             pbar.update(1)
