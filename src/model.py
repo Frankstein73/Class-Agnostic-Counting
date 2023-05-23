@@ -220,12 +220,13 @@ class LOCA(nn.Module):
         density_maps = self.decoder(response_maps)
         return density_maps
         
+if __name__ == "__main__":
+    img = torch.randn(2, 3, 512, 512)
+    boxes = [
+        torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
+        torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
+    ]
+    loca = LOCA(512, 512, 256, 7, roi_pool)
+    print(loca(img, boxes).shape)
 
 
-img = torch.randn(2, 3, 512, 512)
-boxes = [
-    torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
-    torch.tensor([[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32),
-]
-loca = LOCA(512, 512, 256, 7, roi_pool)
-print(loca(img, boxes).shape)
