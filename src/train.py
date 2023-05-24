@@ -4,6 +4,7 @@ from torchvision.ops import roi_align, roi_pool
 import torch
 import lightning.pytorch as pl
 from torch.nn import functional as F
+import torchmetrics
 
 
 
@@ -30,6 +31,9 @@ class LightningLOCA(pl.LightningModule):
         super().__init__()
         self.model = LOCA(512, 512, 256, 3, roi_pool)
         self.aux = aux
+
+        self.mae = torchmetrics.MeanAbsoluteError()
+        self.mse = torchmetrics.MeanSquaredError()
 
     def forward(self, image, boxes):
         boxes = [box for box in boxes]
@@ -59,16 +63,17 @@ class LightningLOCA(pl.LightningModule):
 
         predicted_count = output.sum(dim=(1, 2, 3))
 
-        # Calculate MAE
-        mae = torch.abs(predicted_count - count).mean()
-        self.log('val_mae', mae)
+        self.mae.update(predicted_count, count)
+        self.mse.update(predicted_count, count)
 
-        # Calculate MSE
-        mse = torch.nn.functional.mse_loss(predicted_count, count)
-        self.log('val_mse', mse)
+    def on_validation_epoch_end(self):
+        self.log('val_mae', self.mae.compute(), prog_bar=True)
+        self.log('val_rmse', torch.sqrt(self.mse.compute()), prog_bar=True)
+        self.mae.reset()
+        self.mse.reset()
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=1e-4)
+        return torch.optim.AdamW(self.parameters(), lr=3e-7, weight_decay=1e-4)
 
 if __name__ == '__main__':
     dm = FSC147DataModule(
@@ -79,7 +84,8 @@ if __name__ == '__main__':
         batch_size=4
     )   
     model = LightningLOCA(aux=0.3)
+    # model = LightningLOCA.load_from_checkpoint("v1.ckpt")
     # test_loca(dm, model)
 
-    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('loca'), precision=16, gradient_clip_val=0.1, accumulate_grad_batches=2)
+    trainer = pl.Trainer(max_epochs=200, devices=[3], logger=pl.loggers.WandbLogger('loca'), precision=16, gradient_clip_val=0.1, accumulate_grad_batches=2)
     trainer.fit(model, dm)
