@@ -39,14 +39,15 @@ class LightningLOCA(pl.LightningModule):
         image = batch['image']
         boxes = batch['boxes']
         gt_density = batch['gt_density']
-        batch_size = image.shape[0]
+        count = batch['count']
 
         output = self(image, boxes)
 
-        loss = torch.sum((output[-1] - gt_density) ** 2) / batch_size
+        m = count.sum()
+        loss = (output[-1] - gt_density).norm(p=2) ** 2 / m
         for i in range(len(output) - 1):
-            loss += self.aux * torch.sum((output[i] - gt_density) ** 2) / batch_size
-        self.log('train_loss', loss)
+            loss += self.aux * (output[i] - gt_density).norm(p=2) ** 2 / m
+        self.log('train_loss', loss, prog_bar=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
