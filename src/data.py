@@ -110,13 +110,12 @@ class Filpping(object):
         image,lines_boxes,density = sample['image'], sample['lines_boxes'],sample['gt_density']
         if random.random() < self.p:
             image = transforms.functional.hflip(image)
-            density = torch.flip(density,[2])
+            density = np.flip(density, axis=1).copy()
             boxes = list()
             for box in lines_boxes:
                 y1, x1, y2, x2 = box[0], box[1], box[2], box[3]
                 boxes.append([y1,512-x2,y2,512-x1])
-            boxes = torch.Tensor(boxes)
-            sample = {'image':image,'boxes':boxes,'gt_density':density}
+            sample = {'image':image,'lines_boxes':boxes,'gt_density':density}
         return sample
 
 class ColorJitting(object):
@@ -137,7 +136,7 @@ class ColorJitting(object):
         image = transforms.functional.adjust_brightness(image, brightness)
         image = transforms.functional.adjust_contrast(image, contrast)
         image = transforms.functional.adjust_saturation(image, saturation)
-        sample = {'image':image,'boxes':lines_boxes,'gt_density':density}
+        sample = {'image':image,'lines_boxes':lines_boxes,'gt_density':density}
         return sample
     
 class Tiling(object):
@@ -156,7 +155,7 @@ class Tiling(object):
             x1 = random.randint(0, W-w)
             y1 = random.randint(0, H-h)
             image = transforms.functional.crop(image, y1, x1, h, w)
-            density = density[:, y1:y1+h, x1:x1+w]
+            density = density[y1:y1+h, x1:x1+w]
             boxes = list()
             for box in lines_boxes:
                 by1, bx1, by2, bx2 = box[0], box[1], box[2], box[3]
@@ -167,7 +166,7 @@ class Tiling(object):
                 if by1 < by2 and bx1 < bx2:
                     boxes.append([by1, bx1, by2, bx2])
 
-            sample = {'image':image,'boxes':lines_boxes,'gt_density':density}
+            sample = {'image':image,'lines_boxes':lines_boxes,'gt_density':density}
         return sample
     
 
@@ -176,7 +175,7 @@ normalize = transforms.Compose([transforms.ToTensor(),
 
 def get_transform(split, wh=512):
     if split == 'train':
-        custom_transforms = transforms.Compose([ResizeImageWithGT(wh), Filpping(), ColorJitting(), Tiling()])
+        custom_transforms = transforms.Compose([Filpping(), ColorJitting(), Tiling(), ResizeImageWithGT(wh), ])
     else:
         custom_transforms = transforms.Compose([ResizeImage(wh)])
     return custom_transforms
