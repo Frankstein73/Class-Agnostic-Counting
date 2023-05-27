@@ -16,6 +16,9 @@ class ResizeImage(object):
         3. The aspect ratio is preserved
     No resizing is done if both height and width are smaller than the specified value
     By: Minh Hoai Nguyen (minhhoai@gmail.com)
+
+    WARNING: This transform and `ResizeImageWithGT` will change the order of boxes' coordinates from (y1,x1,y2,x2) to (x1,y1,x2,y2)!!
+        But all other transforms in this file keeps the order.
     """
     
     def __init__(self, MAX_HW=1504):
@@ -38,7 +41,7 @@ class ResizeImage(object):
         for box in lines_boxes:
             box2 = [int(k*scale_factor) for k in box]
             y1, x1, y2, x2 = box2[0], box2[1], box2[2], box2[3]
-            boxes.append([y1,x1,y2,x2])
+            boxes.append([x1,y1,x2,y2])
 
         boxes = torch.Tensor(boxes)
         resized_image = normalize(resized_image)
@@ -57,8 +60,8 @@ class ResizeImageWithGT(object):
         3. The aspect ratio is preserved
     No resizing is done if both height and width are smaller than the specified value
 
-    WARNING: This transform will change the order of boxes' coordinates from (y1,x1,y2,x2) to (x1,y1,x2,y2)!!
-        But all other transforms in this file keeps the order, including `ResizeImage`.
+    WARNING: This transform and `ResizeImage` will change the order of boxes' coordinates from (y1,x1,y2,x2) to (x1,y1,x2,y2)!!
+        But all other transforms in this file keeps the order.
     """
     
     def __init__(self, wh=1504):
