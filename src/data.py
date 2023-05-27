@@ -72,7 +72,7 @@ class ResizeImageWithGT(object):
             new_H = 8*int(H*scale_factor/8)
             new_W = 8*int(W*scale_factor/8)
             resized_image = transforms.Resize((new_H, new_W))(image)
-            resized_density = cv2.resize(density, (new_W, new_H))
+            resized_density = cv2.resize(density, (new_H, new_W))
             orig_count = np.sum(density)
             new_count = np.sum(resized_density)
 
@@ -142,22 +142,23 @@ class ColorJitting(object):
     
 class Tiling(object):
     """
-    Randomly crop the image into [0.75-ratio, 0.75+ratio] of the original size
+    Randomly crop the image
     """
-    def __init__(self, p=0.5, ratio=0.25):
+    def __init__(self, p=0.5):
         self.p = p
-        self.ratio = ratio
 
     def __call__(self, sample):
         image,lines_boxes,density = sample['image'], sample['lines_boxes'],sample['gt_density']
         if random.random() < self.p:
             W, H = image.size
-            ratio = random.uniform(0.75-self.ratio, 0.75+self.ratio)
-            w, h = int(W*ratio), int(H*ratio)
-            x1 = random.randint(0, W-w)
-            y1 = random.randint(0, H-h)
+            miny = min([box[0] for box in lines_boxes])
+            minx = min([box[1] for box in lines_boxes])
+            maxy = max([box[2] for box in lines_boxes])
+            maxx = max([box[3] for box in lines_boxes])
+            y1, x1, y2, x2 = random.randint(0, miny), random.randint(0, minx), random.randint(maxy, H), random.randint(maxx, W)
+            h, w = y2-y1, x2-x1
             image = transforms.functional.crop(image, y1, x1, h, w)
-            density = density[x1:x1+w, y1:y1+h]
+            density = density[y1:y2, x1:x2]
             boxes = list()
             for box in lines_boxes:
                 by1, bx1, by2, bx2 = box[0], box[1], box[2], box[3]
@@ -165,8 +166,7 @@ class Tiling(object):
                 bx1 = max(bx1-x1, 0)
                 by2 = min(by2-y1, h)
                 bx2 = min(bx2-x1, w)
-                if by1 < by2 and bx1 < bx2:
-                    boxes.append([by1, bx1, by2, bx2])
+                boxes.append([by1, bx1, by2, bx2])
 
             sample = {'image':image,'lines_boxes':boxes,'gt_density':density}
         return sample
