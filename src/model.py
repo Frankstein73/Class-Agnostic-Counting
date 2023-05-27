@@ -156,8 +156,8 @@ class OPE(nn.Module):
         tensor_boxes = torch.stack(boxes, dim=0)
         boxes_hw = torch.stack(
             [
-                tensor_boxes[:, :, 2] - tensor_boxes[:, :, 0],
                 tensor_boxes[:, :, 3] - tensor_boxes[:, :, 1],
+                tensor_boxes[:, :, 2] - tensor_boxes[:, :, 0],
             ],
             dim=2,
         )

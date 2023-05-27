@@ -86,7 +86,7 @@ class ResizeImageWithGT(object):
         for box in lines_boxes:
             box2 = [int(k*scale_factor) for k in box]
             y1, x1, y2, x2 = box2[0], box2[1], box2[2], box2[3]
-            boxes.append([y1,x1,y2,x2])
+            boxes.append([x1,y1,x2,y2])
 
         boxes = torch.Tensor(boxes)
         resized_image = normalize(resized_image)
@@ -221,6 +221,7 @@ def load_fsc147(anno_file, data_split_file, im_dir, gt_dir):
             data[split].append(transformed_sample)
 
             pbar.update(1)
+            break
         pbar.close()
     return data
 
