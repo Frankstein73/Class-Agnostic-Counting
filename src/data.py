@@ -109,12 +109,13 @@ class Filpping(object):
     def __call__(self, sample):
         image,lines_boxes,density = sample['image'], sample['lines_boxes'],sample['gt_density']
         if random.random() < self.p:
+            W, H = image.size
             image = transforms.functional.hflip(image)
             density = np.flip(density, axis=1).copy()
             boxes = list()
             for box in lines_boxes:
                 y1, x1, y2, x2 = box[0], box[1], box[2], box[3]
-                boxes.append([y1,512-x2,y2,512-x1])
+                boxes.append([y1,W-x2,y2,W-x1])
             sample = {'image':image,'lines_boxes':boxes,'gt_density':density}
         return sample
 
@@ -143,7 +144,7 @@ class Tiling(object):
     """
     Randomly crop the image into [0.5-ratio, 0.5+ratio] of the original size
     """
-    def __init__(self, p=0.5, ratio=0.1):
+    def __init__(self, p=0.5, ratio=0.25):
         self.p = p
         self.ratio = ratio
 
