@@ -56,8 +56,9 @@ class ResizeImageWithGT(object):
         2. The new height and new width are divisible by 8
         3. The aspect ratio is preserved
     No resizing is done if both height and width are smaller than the specified value
-    By: Minh Hoai Nguyen (minhhoai@gmail.com)
-    Modified by: Viresh
+
+    WARNING: This transform will change the order of boxes' coordinates from (y1,x1,y2,x2) to (x1,y1,x2,y2)!!
+        But all other transforms in this file keeps the order, including `ResizeImage`.
     """
     
     def __init__(self, wh=1504):
