@@ -142,7 +142,7 @@ class ColorJitting(object):
     
 class Tiling(object):
     """
-    Randomly crop the image into [0.5-ratio, 0.5+ratio] of the original size
+    Randomly crop the image into [0.75-ratio, 0.75+ratio] of the original size
     """
     def __init__(self, p=0.5, ratio=0.25):
         self.p = p
@@ -152,11 +152,12 @@ class Tiling(object):
         image,lines_boxes,density = sample['image'], sample['lines_boxes'],sample['gt_density']
         if random.random() < self.p:
             W, H = image.size
-            w, h = int(W*self.ratio), int(H*self.ratio)
+            ratio = random.uniform(0.75-self.ratio, 0.75+self.ratio)
+            w, h = int(W*ratio), int(H*ratio)
             x1 = random.randint(0, W-w)
             y1 = random.randint(0, H-h)
             image = transforms.functional.crop(image, y1, x1, h, w)
-            density = density[y1:y1+h, x1:x1+w]
+            density = density[x1:x1+w, y1:y1+h]
             boxes = list()
             for box in lines_boxes:
                 by1, bx1, by2, bx2 = box[0], box[1], box[2], box[3]
@@ -167,7 +168,7 @@ class Tiling(object):
                 if by1 < by2 and bx1 < bx2:
                     boxes.append([by1, bx1, by2, bx2])
 
-            sample = {'image':image,'lines_boxes':lines_boxes,'gt_density':density}
+            sample = {'image':image,'lines_boxes':boxes,'gt_density':density}
         return sample
     
 
