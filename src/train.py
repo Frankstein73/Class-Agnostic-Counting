@@ -1,5 +1,5 @@
 from data import FSC147DataModule
-from model import LOCA
+from model import LOCA, VGG16Trans
 from torchvision.ops import roi_align, roi_pool
 import torch
 import lightning.pytorch as pl
@@ -46,6 +46,52 @@ def test_loca(dm, model):
             # make dir test/ if not exist
             os.makedirs('test', exist_ok=True)
             fig.savefig(f'test/{i}_{j}.png')
+
+class LightningVGG16(pl.LightningModule):
+    def __init__(self, up_scale=8):
+        super().__init__()
+        self.model = VGG16Trans(up_scale)
+        self.up_scale = up_scale
+        self.mae = torchmetrics.MeanAbsoluteError()
+        self.mse = torchmetrics.MeanSquaredError()
+
+    def forward(self, image):
+        return self.model(image)
+
+    def training_step(self, batch, batch_idx):
+        image = batch['image']
+        boxes = batch['boxes']
+        gt_density = batch['gt_density']
+        count = batch['count']
+
+        output = self.forward(image)
+
+        small_gt_density = F.avg_pool2d(gt_density, self.up_scale) * (self.up_scale ** 2)
+
+        loss = F.mse_loss(output, small_gt_density, reduction="sum")
+        self.log('train_loss', loss, prog_bar=True)
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+        image = batch['image']
+        boxes = batch['boxes']
+        count = batch['count']
+
+        output = self.forward(image)
+
+        predicted_count = output.sum(dim=(1, 2, 3))
+
+        self.mae.update(predicted_count, count)
+        self.mse.update(predicted_count, count)
+
+    def on_validation_epoch_end(self):
+        self.log('val_mae', self.mae.compute(), prog_bar=True)
+        self.log('val_rmse', torch.sqrt(self.mse.compute()), prog_bar=True)
+        self.mae.reset()
+        self.mse.reset()
+
+    def configure_optimizers(self):
+        return torch.optim.AdamW(self.parameters(), lr=1e-7, weight_decay=1e-3)
 
 class LightningLOCA(pl.LightningModule):
     def __init__(self, aux=0.3):

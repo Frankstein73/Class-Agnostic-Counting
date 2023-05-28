@@ -1,9 +1,11 @@
+import copy
+from typing import Optional
 import torch
 from torch import nn
 
 # import lightning.pytorch as pl
 from torch.nn import functional as F
-from torchvision.models import resnet50
+from torchvision.models import resnet50, vgg16_bn, VGG16_BN_Weights
 from torchvision.ops import roi_align, roi_pool
 import torchvision
 
@@ -244,6 +246,91 @@ class LOCA(nn.Module):
         return density_maps_list
 
 
+class EncoderOnlyTransformer(nn.Module):
+    def __init__(self, layers=4, dim=512, norm=None):
+        super().__init__()
+        d_model = dim
+        nhead = 2
+        dim_feedforward = 2048
+        dropout = 0.1
+        activation = "relu"
+
+        self.layers = nn.ModuleList([copy.deepcopy(nn.TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, activation, batch_first=True))
+                                     for _ in range(layers)])
+        self.norm = norm
+
+    def forward(self, src):
+        output = src
+        for layer in self.layers:
+            output = layer(output)
+        if self.norm is not None:
+            output = self.norm(output)
+        return output
+
+class ConvBlock(nn.Module):
+    """
+    Normal Conv Block with BN & ReLU
+    """
+
+    def __init__(self, cin, cout, k_size=3, d_rate=1, batch_norm=True, res_link=False):
+        super().__init__()
+        self.res_link = res_link
+        if batch_norm:
+            self.body = nn.Sequential(
+                nn.Conv2d(cin, cout, k_size, padding=d_rate, dilation=d_rate),
+                nn.BatchNorm2d(cout),
+                nn.ReLU(inplace=True),
+            )
+        else:
+            self.body = nn.Sequential(
+                nn.Conv2d(cin, cout, k_size, padding=d_rate, dilation=d_rate),
+                nn.ReLU(inplace=True),
+            )
+
+    def forward(self, x):
+        if self.res_link:
+            return x + self.body(x)
+        else:
+            return self.body(x)
+        
+class VGG16Trans(nn.Module):
+    def __init__(self, up_scale=8):
+        super().__init__()
+        self.scale = 16 // up_scale
+        self.vgg16bn = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)
+        # in fact, [0] is an `nn.Sequential`
+        self.encoder = list(self.vgg16bn.children())[0]
+        # remove last max pooling layer
+        del self.encoder[-1]
+        print(self.encoder)
+        self.tran_decoder = EncoderOnlyTransformer(dim=512)
+        self.upsampler = nn.Sequential(
+            ConvBlock(512, 256),
+            ConvBlock(256, 128),
+            ConvBlock(128, 64),
+            nn.Conv2d(64, 1, kernel_size=1),
+            nn.ReLU(inplace=True),
+        )
+    
+    def forward(self, x, *args):
+        # x: (batch_size, 3, H, W)
+        _, _, H, W = x.size()
+        # x: (batch_size, c, h, w)
+        x = self.encoder(x)
+        batch_size, c, h, w = x.size()
+        print(batch_size, c, h, w)
+        # x: (batch_size, hw, c)
+        x = x.flatten(2).permute(0, 2, 1)
+        # x: (batch_size, hw, c)
+        x = self.tran_decoder(x)
+        # x: (batch_size, c, h, w)
+        x = x.permute(0, 2, 1).reshape(batch_size, c, h, w)
+        # x: (batch_size, c, h*2, w*2)
+        x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
+        # x: (batch_size, 1, H, W)
+        x = self.upsampler(x)
+        return x
+
 if __name__ == "__main__":
     img = torch.randn(2, 3, 512, 512)
     boxes = [
@@ -254,8 +341,9 @@ if __name__ == "__main__":
             [[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32
         ),
     ]
-    loca = LOCA(512, 512, 256, 7, roi_pool)
-    # loca.train()
-    print(len(loca(img, boxes)))
-    loca.eval()
-    print(len(loca(img, boxes)))
+    # loca = LOCA(512, 512, 256, 7, roi_pool)
+    loca = VGG16Trans()
+    loca.train()
+    print(loca(img, boxes).shape)
+    # loca.eval()
+    # print(len(loca(img, boxes)))
