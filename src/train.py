@@ -29,20 +29,21 @@ def test_loca(dm, model):
 
         batch_size = image.shape[0]
         for j in range(batch_size):
-            output = outputs[-1][j].detach()
+            output_len = len(outputs)
             fig = plt.figure(clear=True)
-            ax = fig.add_subplot(121)
+            ax = fig.add_subplot(2, output_len, 1)
             ax.imshow(image[j].permute(1, 2, 0).numpy())
             for box in boxes[j]:
                 bx1, by1, bx2, by2 = tuple(box.tolist())
                 ax.add_patch(plt.Rectangle((bx1, by1), bx2 - bx1, by2 - by1, fill=False, edgecolor='red', linewidth=2))
 
-            ax = fig.add_subplot(122)
-            ax.imshow(output.permute(1,2,0).numpy())
+            for k in range(output_len):
+                ax = fig.add_subplot(2, output_len, output_len + k + 1)
+                ax.imshow(outputs[k][j].detach().permute(1,2,0).numpy())
 
             # make dir test/ if not exist
-            os.makedirs('test')
-            plt.savefig(f'test/{i}_{j}.png')
+            os.makedirs('test', exist_ok=True)
+            fig.savefig(f'test/{i}_{j}.png')
 
 class LightningLOCA(pl.LightningModule):
     def __init__(self, aux=0.3):
