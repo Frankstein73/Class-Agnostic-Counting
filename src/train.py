@@ -92,7 +92,7 @@ class LightningLOCA(pl.LightningModule):
         self.mse.reset()
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=1e-7, weight_decay=1e-4)
+        return torch.optim.AdamW(self.parameters(), lr=1e-7, weight_decay=1e-3)
 
 if __name__ == '__main__':
     dm = FSC147DataModule(
@@ -121,5 +121,5 @@ if __name__ == '__main__':
     # ax = fig.add_subplot(122)
     # ax.imshow(gt_density[0].permute(1,2,0).numpy())
     # plt.show()
-    # trainer = pl.Trainer(max_epochs=400, devices=[0], logger=pl.loggers.WandbLogger('loca'), precision=16, gradient_clip_val=0.1)
-    # trainer.fit(model, dm)
+    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('loca'), precision=16, gradient_clip_val=0.1, accumulate_grad_batches=2)
+    trainer.fit(model, dm)
