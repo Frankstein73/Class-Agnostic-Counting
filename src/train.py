@@ -96,7 +96,14 @@ class LightningVGG16(pl.LightningModule):
         self.mse.reset()
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=1e-7, weight_decay=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=4e-5, weight_decay=1e-4)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": torch.optim.lr_scheduler.StepLR(optimizer, step_size=400, gamma=0.5),
+                "interval": "epoch",
+            }
+        }
 
 class LightningLOCA(pl.LightningModule):
     def __init__(self, aux=0.3, val_save_figs=False):

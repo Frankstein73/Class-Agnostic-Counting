@@ -302,7 +302,6 @@ class VGG16Trans(nn.Module):
         self.encoder = list(self.vgg16bn.children())[0]
         # remove last max pooling layer
         del self.encoder[-1]
-        print(self.encoder)
         self.tran_decoder = EncoderOnlyTransformer(dim=512)
         self.upsampler = nn.Sequential(
             ConvBlock(512, 256),
@@ -318,7 +317,6 @@ class VGG16Trans(nn.Module):
         # x: (batch_size, c, h, w)
         x = self.encoder(x)
         batch_size, c, h, w = x.size()
-        print(batch_size, c, h, w)
         # x: (batch_size, hw, c)
         x = x.flatten(2).permute(0, 2, 1)
         # x: (batch_size, hw, c)
