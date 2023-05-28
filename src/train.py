@@ -7,6 +7,29 @@ from torch.nn import functional as F
 import torchmetrics
 
 
+def save_figs(images, boxes_es, gt_densities, outputs, prefix, save_path="test"):
+    import matplotlib.pyplot as plt
+    import os
+    batch_size = images.shape[0]
+    for j in range(batch_size):
+        output_len = len(outputs)
+        fig = plt.figure(clear=True)
+        ax = fig.add_subplot(3, output_len, 1)
+        ax.imshow(images[j].permute(1, 2, 0).numpy())
+        for box in boxes_es[j]:
+            bx1, by1, bx2, by2 = tuple(box.tolist())
+            ax.add_patch(plt.Rectangle((bx1, by1), bx2 - bx1, by2 - by1, fill=False, edgecolor='red', linewidth=2))
+
+        ax = fig.add_subplot(3, output_len, output_len+1)
+        ax.imshow(gt_densities[j].detach().permute(1,2,0).numpy())
+        for k in range(output_len):
+            ax = fig.add_subplot(3, output_len, output_len*2 + k + 1)
+            ax.imshow(outputs[k][j].detach().permute(1,2,0).numpy())
+
+        # make dir test/ if not exist
+        os.makedirs(save_path, exist_ok=True)
+        fig.savefig(f'{save_path}/{prefix}_{j}.png')
+        plt.close(fig)
 
 def test_loca(dm, model):
     import matplotlib.pyplot as plt
@@ -27,25 +50,7 @@ def test_loca(dm, model):
 
         outputs = model(image, boxes)
 
-        batch_size = image.shape[0]
-        for j in range(batch_size):
-            output_len = len(outputs)
-            fig = plt.figure(clear=True)
-            ax = fig.add_subplot(3, output_len, 1)
-            ax.imshow(image[j].permute(1, 2, 0).numpy())
-            for box in boxes[j]:
-                bx1, by1, bx2, by2 = tuple(box.tolist())
-                ax.add_patch(plt.Rectangle((bx1, by1), bx2 - bx1, by2 - by1, fill=False, edgecolor='red', linewidth=2))
-
-            ax = fig.add_subplot(3, output_len, output_len+1)
-            ax.imshow(gt_density[j].detach().permute(1,2,0).numpy())
-            for k in range(output_len):
-                ax = fig.add_subplot(3, output_len, output_len*2 + k + 1)
-                ax.imshow(outputs[k][j].detach().permute(1,2,0).numpy())
-
-            # make dir test/ if not exist
-            os.makedirs('test', exist_ok=True)
-            fig.savefig(f'test/{i}_{j}.png')
+        save_figs(image, boxes, gt_density, outputs, f"train_{i}", save_path="test_loca")
 
 class LightningVGG16(pl.LightningModule):
     def __init__(self, up_scale=8):
@@ -94,10 +99,11 @@ class LightningVGG16(pl.LightningModule):
         return torch.optim.AdamW(self.parameters(), lr=1e-7, weight_decay=1e-3)
 
 class LightningLOCA(pl.LightningModule):
-    def __init__(self, aux=0.3):
+    def __init__(self, aux=0.3, val_save_figs=False):
         super().__init__()
         self.model = LOCA(512, 512, 256, 3, roi_align, iterations=1)
         self.aux = aux
+        self.val_save_figs = val_save_figs
 
         self.mae = torchmetrics.MeanAbsoluteError()
         self.mse = torchmetrics.MeanSquaredError()
@@ -124,12 +130,16 @@ class LightningLOCA(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         image = batch['image']
         boxes = batch['boxes']
+        gt_density = batch['gt_density']
         count = batch['count']
 
-        output = self(image, boxes)[-1]
+        outputs = self(image, boxes)
+        output = outputs[-1]
 
         predicted_count = output.sum(dim=(1, 2, 3))
 
+        if self.val_save_figs:
+            save_figs(image, boxes, gt_density, outputs, f"val_{batch_idx}", "val")
         self.mae.update(predicted_count, count)
         self.mse.update(predicted_count, count)
 
