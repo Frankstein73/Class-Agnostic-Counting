@@ -214,22 +214,24 @@ def load_fsc147(anno_file, data_split_file, im_dir, gt_dir):
             image.load()
             density_path = gt_dir + '/' + im_id.split(".jpg")[0] + ".npy"
             density = np.load(density_path).astype('float32')    
-            sample = {'image':image,'lines_boxes':rects,'gt_density':density}
-            transformed_sample = get_transform(split)(sample)
-            transformed_sample['count'] = dots.shape[0]
-            data[split].append(transformed_sample)
+            sample = {'image':image,'lines_boxes':rects,'gt_density':density,'count':dots.shape[0]}
+            data[split].append(sample)
 
             pbar.update(1)
         pbar.close()
     return data
 
 class FSC147Dataset(torch.utils.data.Dataset):
-    def __init__(self, data):
+    def __init__(self, data, split):
         self.data = data
+        self.split = split
         self.num_samples = len(self.data)
 
     def __getitem__(self, index):
-        return self.data[index]
+        counts = self.data[index]["count"]
+        transformed_data = get_transform(self.split)(self.data[index])
+        transformed_data["count"] = counts
+        return transformed_data
 
     def __len__(self):
         return self.num_samples
@@ -247,9 +249,9 @@ class FSC147DataModule(pl.LightningDataModule):
 
     def setup(self, stage=None):
         self.data = load_fsc147(self.anno_file, self.data_split_file, self.im_dir, self.gt_dir)
-        self.train_dataset = FSC147Dataset(self.data['train'])
-        self.val_dataset = FSC147Dataset(self.data['val'])
-        self.test_dataset = FSC147Dataset(self.data['test'])
+        self.train_dataset = FSC147Dataset(self.data['train'], 'train')
+        self.val_dataset = FSC147Dataset(self.data['val'], 'val')
+        self.test_dataset = FSC147Dataset(self.data['test'], 'test')
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_workers)
