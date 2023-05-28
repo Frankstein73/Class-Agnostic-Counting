@@ -157,7 +157,8 @@ class Tiling(object):
             y1, x1, y2, x2 = random.randint(0, miny), random.randint(0, minx), random.randint(maxy, H), random.randint(maxx, W)
             h, w = y2-y1, x2-x1
             image = transforms.functional.crop(image, y1, x1, h, w)
-            density = density[y1:y2, x1:x2]
+            k = np.sum(density) / np.sum(density[y1:y2, x1:x2])
+            density = density[y1:y2, x1:x2] * k
             boxes = list()
             for box in lines_boxes:
                 by1, bx1, by2, bx2 = box[0], box[1], box[2], box[3]
