@@ -225,7 +225,7 @@ def load_fsc147(anno_file, data_split_file, im_dir, gt_dir):
             data[split].append(transformed_sample)
 
             pbar.update(1)
-            break
+            # break
         pbar.close()
     return data
 
