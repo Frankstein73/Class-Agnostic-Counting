@@ -71,21 +71,16 @@ class ResizeImageWithGT(object):
         image,lines_boxes,density = sample['image'], sample['lines_boxes'],sample['gt_density']
         
         W, H = image.size
-        if W > self.wh or H > self.wh:
-            scale_factor = float(self.wh)/ max(H, W)
-            new_H = 8*int(H*scale_factor/8)
-            new_W = 8*int(W*scale_factor/8)
-            resized_image = transforms.Resize((new_H, new_W))(image)
-            resized_density = cv2.resize(density, (new_H, new_W))
-            orig_count = np.sum(density)
-            new_count = np.sum(resized_density)
+        scale_factor = float(self.wh)/ max(H, W)
+        new_H = 8*int(H*scale_factor/8)
+        new_W = 8*int(W*scale_factor/8)
+        resized_image = transforms.Resize((new_H, new_W))(image)
+        resized_density = cv2.resize(density, (new_H, new_W))
+        orig_count = np.sum(density)
+        new_count = np.sum(resized_density)
 
-            if new_count > 0: resized_density = resized_density * (orig_count / new_count)
-            
-        else:
-            scale_factor = 1
-            resized_image = image
-            resized_density = density
+        resized_density = resized_density * (orig_count / new_count)
+        
         boxes = list()
         for box in lines_boxes:
             box2 = [int(k*scale_factor) for k in box]
@@ -225,7 +220,6 @@ def load_fsc147(anno_file, data_split_file, im_dir, gt_dir):
             data[split].append(transformed_sample)
 
             pbar.update(1)
-            break
         pbar.close()
     return data
 
