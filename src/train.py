@@ -15,7 +15,7 @@ def test_loca(dm, model):
     dm.setup()
     model.to(device)
     for i, batch in enumerate(dm.train_dataloader()):
-        if i == 200:
+        if i == 10:
             break
         image = batch['image']
         boxes = batch['boxes']
@@ -31,14 +31,16 @@ def test_loca(dm, model):
         for j in range(batch_size):
             output_len = len(outputs)
             fig = plt.figure(clear=True)
-            ax = fig.add_subplot(2, output_len, 1)
+            ax = fig.add_subplot(3, output_len, 1)
             ax.imshow(image[j].permute(1, 2, 0).numpy())
             for box in boxes[j]:
                 bx1, by1, bx2, by2 = tuple(box.tolist())
                 ax.add_patch(plt.Rectangle((bx1, by1), bx2 - bx1, by2 - by1, fill=False, edgecolor='red', linewidth=2))
 
+            ax = fig.add_subplot(3, output_len, output_len+1)
+            ax.imshow(gt_density[j].detach().permute(1,2,0).numpy())
             for k in range(output_len):
-                ax = fig.add_subplot(2, output_len, output_len + k + 1)
+                ax = fig.add_subplot(3, output_len, output_len*2 + k + 1)
                 ax.imshow(outputs[k][j].detach().permute(1,2,0).numpy())
 
             # make dir test/ if not exist

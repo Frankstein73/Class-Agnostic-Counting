@@ -75,11 +75,11 @@ class ResizeImageWithGT(object):
         new_H = 8*int(H*scale_factor/8)
         new_W = 8*int(W*scale_factor/8)
         resized_image = transforms.Resize((new_H, new_W))(image)
-        resized_density = cv2.resize(density, (new_H, new_W))
+        resized_density = cv2.resize(density, (new_W, new_H))
         orig_count = np.sum(density)
         new_count = np.sum(resized_density)
 
-        resized_density = resized_density * (orig_count / new_count)
+        resized_density = resized_density * (orig_count / new_count) if new_count > 0 else resized_density
 
         boxes = list()
         for box in lines_boxes:
@@ -122,7 +122,7 @@ class ColorJitting(object):
     """
     Randomly change the brightness, contrast and saturation of an image
     """
-    def __init__(self, brightness=0.2, contrast=0.2, saturation=0.2):
+    def __init__(self, brightness=0.1, contrast=0.1, saturation=0.1):
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation
