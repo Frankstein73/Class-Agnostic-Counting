@@ -9,7 +9,9 @@ import torchmetrics
 
 
 def test_loca(dm, model):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    import matplotlib.pyplot as plt
+    import os
+    device = torch.device('cpu')
     dm.setup()
     model.to(device)
     for i, batch in enumerate(dm.train_dataloader()):
@@ -18,13 +20,29 @@ def test_loca(dm, model):
         image = batch['image']
         boxes = batch['boxes']
         gt_density = batch['gt_density']
-        print(image.shape, boxes.shape, gt_density.shape)
 
         image = image.to(device)
         boxes = boxes.to(device)
         gt_density = gt_density.to(device)
 
-        output = model(image, boxes)
+        outputs = model(image, boxes)
+
+        batch_size = image.shape[0]
+        for j in range(batch_size):
+            output = outputs[-1][j].detach()
+            fig = plt.figure(clear=True)
+            ax = fig.add_subplot(121)
+            ax.imshow(image[j].permute(1, 2, 0).numpy())
+            for box in boxes[j]:
+                bx1, by1, bx2, by2 = tuple(box.tolist())
+                ax.add_patch(plt.Rectangle((bx1, by1), bx2 - bx1, by2 - by1, fill=False, edgecolor='red', linewidth=2))
+
+            ax = fig.add_subplot(122)
+            ax.imshow(output.permute(1,2,0).numpy())
+
+            # make dir test/ if not exist
+            os.makedirs('test')
+            plt.savefig(f'test/{i}_{j}.png')
 
 class LightningLOCA(pl.LightningModule):
     def __init__(self, aux=0.3):
@@ -85,7 +103,22 @@ if __name__ == '__main__':
     )   
     model = LightningLOCA(aux=0.3)
     # model = LightningLOCA.load_from_checkpoint("v1.ckpt")
-    # test_loca(dm, model)
+    test_loca(dm, model)
+    
+    # dm.setup()
+    # demo = next(iter(dm.train_dataloader()))
+    # image, boxes, gt_density, count = demo['image'], demo['boxes'], demo['gt_density'], demo['count']
+    # # display image with boxes
+    # import matplotlib.pyplot as plt
+    # fig = plt.figure()
+    # ax = fig.add_subplot(121)
+    # ax.imshow(image[0].permute(1, 2, 0).numpy())
+    # for box in boxes[0]:
+    #     bx1, by1, bx2, by2 = tuple(box.tolist())
+    #     ax.add_patch(plt.Rectangle((bx1, by1), bx2 - bx1, by2 - by1, fill=False, edgecolor='red', linewidth=2))
 
-    trainer = pl.Trainer(max_epochs=400, devices=[0], logger=pl.loggers.WandbLogger('loca'), precision=16, gradient_clip_val=0.1)
-    trainer.fit(model, dm)
+    # ax = fig.add_subplot(122)
+    # ax.imshow(gt_density[0].permute(1,2,0).numpy())
+    # plt.show()
+    # trainer = pl.Trainer(max_epochs=400, devices=[0], logger=pl.loggers.WandbLogger('loca'), precision=16, gradient_clip_val=0.1)
+    # trainer.fit(model, dm)
