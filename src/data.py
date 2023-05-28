@@ -80,7 +80,7 @@ class ResizeImageWithGT(object):
         new_count = np.sum(resized_density)
 
         resized_density = resized_density * (orig_count / new_count)
-        
+
         boxes = list()
         for box in lines_boxes:
             box2 = [int(k*scale_factor) for k in box]

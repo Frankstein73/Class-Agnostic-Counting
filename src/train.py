@@ -29,7 +29,7 @@ def test_loca(dm, model):
 class LightningLOCA(pl.LightningModule):
     def __init__(self, aux=0.3):
         super().__init__()
-        self.model = LOCA(512, 512, 256, 3, roi_pool)
+        self.model = LOCA(512, 512, 256, 3, roi_align, iterations=1)
         self.aux = aux
 
         self.mae = torchmetrics.MeanAbsoluteError()
@@ -73,7 +73,7 @@ class LightningLOCA(pl.LightningModule):
         self.mse.reset()
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=3e-7, weight_decay=1e-3)
+        return torch.optim.AdamW(self.parameters(), lr=1e-7, weight_decay=1e-3)
 
 if __name__ == '__main__':
     dm = FSC147DataModule(
@@ -81,7 +81,7 @@ if __name__ == '__main__':
         data_split_file='../data/Train_Test_Val_FSC_147.json',
         im_dir='../data/images_384_VarV2',
         gt_dir='../data/gt_density_map_adaptive_384_VarV2',
-        batch_size=4
+        batch_size=8
     )   
     model = LightningLOCA(aux=0.3)
     # model = LightningLOCA.load_from_checkpoint("v1.ckpt")
