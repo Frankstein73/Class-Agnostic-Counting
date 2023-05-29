@@ -5,7 +5,7 @@ import torch
 import lightning.pytorch as pl
 from torch.nn import functional as F
 import torchmetrics
-
+from lightning.pytorch import seed_everything
 
 def save_figs(images, boxes_es, gt_densities, outputs, prefix, save_path="test"):
     import matplotlib.pyplot as plt
@@ -15,16 +15,17 @@ def save_figs(images, boxes_es, gt_densities, outputs, prefix, save_path="test")
         output_len = len(outputs)
         fig = plt.figure(clear=True)
         ax = fig.add_subplot(3, output_len, 1)
-        ax.imshow(images[j].permute(1, 2, 0).numpy())
+        ax.imshow(images[j].permute(1, 2, 0).cpu().numpy())
         for box in boxes_es[j]:
             bx1, by1, bx2, by2 = tuple(box.tolist())
             ax.add_patch(plt.Rectangle((bx1, by1), bx2 - bx1, by2 - by1, fill=False, edgecolor='red', linewidth=2))
 
         ax = fig.add_subplot(3, output_len, output_len+1)
-        ax.imshow(gt_densities[j].detach().permute(1,2,0).numpy())
+        if gt_densities is not None:
+            ax.imshow(gt_densities[j].detach().permute(1,2,0).cpu().numpy())
         for k in range(output_len):
             ax = fig.add_subplot(3, output_len, output_len*2 + k + 1)
-            ax.imshow(outputs[k][j].detach().permute(1,2,0).numpy())
+            ax.imshow(outputs[k][j].detach().permute(1,2,0).cpu().numpy())
 
         # make dir test/ if not exist
         os.makedirs(save_path, exist_ok=True)
@@ -53,15 +54,17 @@ def test_loca(dm, model):
         save_figs(image, boxes, gt_density, outputs, f"train_{i}", save_path="test_loca")
 
 class LightningVGG16(pl.LightningModule):
-    def __init__(self, up_scale=8):
+    def __init__(self, up_scale=8, val_save_figs=True):
         super().__init__()
         self.model = VGG16Trans(up_scale)
         self.up_scale = up_scale
         self.mae = torchmetrics.MeanAbsoluteError()
         self.mse = torchmetrics.MeanSquaredError()
+        self.val_save_figs = val_save_figs
 
-    def forward(self, image):
-        return self.model(image)
+    def forward(self, image, boxes):
+        boxes = [box for box in boxes]
+        return self.model(image, boxes)
 
     def training_step(self, batch, batch_idx):
         image = batch['image']
@@ -69,7 +72,7 @@ class LightningVGG16(pl.LightningModule):
         gt_density = batch['gt_density']
         count = batch['count']
 
-        output = self.forward(image)
+        output = self.forward(image, boxes)
 
         small_gt_density = F.avg_pool2d(gt_density, self.up_scale) * (self.up_scale ** 2)
 
@@ -81,13 +84,13 @@ class LightningVGG16(pl.LightningModule):
         image = batch['image']
         boxes = batch['boxes']
         count = batch['count']
-
-        output = self.forward(image)
-
+        output = self.forward(image, boxes)
         predicted_count = output.sum(dim=(1, 2, 3))
 
         self.mae.update(predicted_count, count)
         self.mse.update(predicted_count, count)
+        if self.val_save_figs:
+            save_figs(image, boxes, None, [output], f"val_{batch_idx}", "val")
 
     def on_validation_epoch_end(self):
         self.log('val_mae', self.mae.compute(), prog_bar=True)
@@ -137,7 +140,6 @@ class LightningLOCA(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         image = batch['image']
         boxes = batch['boxes']
-        gt_density = batch['gt_density']
         count = batch['count']
 
         outputs = self(image, boxes)
@@ -146,7 +148,7 @@ class LightningLOCA(pl.LightningModule):
         predicted_count = output.sum(dim=(1, 2, 3))
 
         if self.val_save_figs:
-            save_figs(image, boxes, gt_density, outputs, f"val_{batch_idx}", "val")
+            save_figs(image, boxes, None, outputs, f"val_{batch_idx}", "val")
         self.mae.update(predicted_count, count)
         self.mse.update(predicted_count, count)
 
@@ -157,9 +159,11 @@ class LightningLOCA(pl.LightningModule):
         self.mse.reset()
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=1e-7, weight_decay=1e-3)
+        return torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=1e-4)
 
 if __name__ == '__main__':
+    seed_everything(42)
+    
     dm = FSC147DataModule(
         anno_file='../data/annotation_FSC147_384.json',
         data_split_file='../data/Train_Test_Val_FSC_147.json',
@@ -167,9 +171,10 @@ if __name__ == '__main__':
         gt_dir='../data/gt_density_map_adaptive_384_VarV2',
         batch_size=8
     )   
-    model = LightningLOCA(aux=0.3)
+    # model = LightningLOCA(aux=0, val_save_figs=True)
+    model = LightningVGG16(val_save_figs=True)
     # model = LightningLOCA.load_from_checkpoint("v1.ckpt")
-    test_loca(dm, model)
+    # test_loca(dm, model)
     
     # dm.setup()
     # demo = next(iter(dm.train_dataloader()))
@@ -186,5 +191,5 @@ if __name__ == '__main__':
     # ax = fig.add_subplot(122)
     # ax.imshow(gt_density[0].permute(1,2,0).numpy())
     # plt.show()
-    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('loca'), precision=16, gradient_clip_val=0.1, accumulate_grad_batches=2)
+    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('vggtrans', project='baseline'), precision=16, gradient_clip_val=0.1)
     trainer.fit(model, dm)

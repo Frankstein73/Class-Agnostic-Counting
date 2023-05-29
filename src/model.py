@@ -58,8 +58,12 @@ class Encoder(nn.Module):
     def __init__(self, d):
         super(Encoder, self).__init__()
         resnet = resnet50(weights=torchvision.models.ResNet50_Weights.DEFAULT)
+        vgg16 = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)
         modules = list(resnet.children())[:-3]
+        vgg_modules = list(vgg16.children())[0]
+        del vgg_modules[-1]
         self.resnet = nn.Sequential(*modules)
+        self.vgg = vgg_modules
         # self.resnet.requires_grad_(False)
         self.upsample = nn.ConvTranspose2d(
             1024, 512, kernel_size=2, stride=2, padding=0
@@ -73,6 +77,7 @@ class Encoder(nn.Module):
         )
 
     def forward(self, x):
+        # out = self.vgg(x)
         out = self.resnet(x)
         out = self.upsample(out)
         out = self.conv1x1(out)
@@ -170,6 +175,33 @@ class OPE(nn.Module):
         return out
 
 
+class GenshinOPE(nn.Module):
+    def __init__(self, d, s, iterations, n_boxes=3, roi=roi_pool):
+        super(GenshinOPE, self).__init__()
+        self.s = s
+        self.d = d
+        self.iterations = iterations
+        self.n_boxes = n_boxes
+        self.roi = roi
+
+    def forward(
+        self, feature: torch.Tensor, boxes: list[torch.Tensor], spatial_scale: float
+    ):
+        # feature: (batch_size, d, h, w)
+        # boxes: list of Tensor(n_boxes, 4)
+        n_boxes, _ = boxes[0].size()
+        assert n_boxes == self.n_boxes
+        batch_size, d, h, w = feature.size()
+        # (batch_size, n_boxes*s*s, d)
+        Qa = (
+            # (batch_size*n, d, s, s)
+            self.roi(feature, boxes, [self.s, self.s], spatial_scale=spatial_scale)
+            .permute(0, 2, 3, 1)
+            .reshape(batch_size, n_boxes * self.s * self.s, d)
+        )
+        return [Qa]
+
+
 class Decoder(nn.Module):
     def __init__(self, d, h_out, w_out):
         super(Decoder, self).__init__()
@@ -191,7 +223,34 @@ class Decoder(nn.Module):
         x = self.conv1x1(x)
         x = self.leakyrelu(x)
         return x
+    
+class Prototype2ResponseMap(nn.Module):
+    def __init__(self, d, s, n_boxes):
+        super(Prototype2ResponseMap, self).__init__()
+        self.d = d
+        self.s = s
+        self.n_boxes = n_boxes
 
+    def forward(self, prototype, feature):
+        batch_size, d, h, w = feature.size()
+        prototype = prototype.reshape(batch_size, self.n_boxes, self.s, self.s, self.d).permute(0, 1, 4, 2, 3).unsqueeze(3)
+        similarity_maps = []
+        for i in range(batch_size):
+            for j in range(self.n_boxes):
+                similarity = F.conv2d(
+                    feature[i],
+                    prototype[i, j],
+                    groups=self.d,
+                    padding=(self.s - 1) // 2,
+                )
+                assert similarity.shape == (self.d, h, w)
+                similarity_maps.append(similarity)
+        similarity_maps = torch.stack(similarity_maps, dim=0).reshape(
+            batch_size, self.n_boxes, self.d, h, w
+        )
+        response_maps = similarity_maps.max(dim=1, keepdim=False)[0]
+        return response_maps
+        
 
 class LOCA(nn.Module):
     def __init__(self, h_in, w_in, d, s, roi, iterations=3, n_boxes=3):
@@ -204,8 +263,9 @@ class LOCA(nn.Module):
         self.iterations = iterations
         self.encoder = Encoder(d)
         self.n_boxes = n_boxes
-        self.ope = OPE(d=d, s=s, iterations=iterations, n_boxes=3, roi=roi)
+        self.ope = GenshinOPE(d=d, s=s, iterations=iterations, n_boxes=3, roi=roi)
         self.decoder = Decoder(d, self.h_in, self.w_in)
+        self.prototype2response = Prototype2ResponseMap(d, s, n_boxes)
 
     def forward(self, img, boxes: list[torch.Tensor]):
         # img: (batch_size, 3, H, W)
@@ -218,29 +278,30 @@ class LOCA(nn.Module):
         if self.training is False:
             prototype = [prototype[-1]]
         # prototype: [(batch_size, n_boxes, d, 1, s, s)]
-        prototype = [
-            ptype.reshape(batch_size, self.n_boxes, self.s, self.s, self.d)
-            .permute(0, 1, 4, 2, 3)
-            .unsqueeze(3)
-            for ptype in prototype
-        ]
+        # prototype = [
+        #     ptype.reshape(batch_size, self.n_boxes, self.s, self.s, self.d)
+        #     .permute(0, 1, 4, 2, 3)
+        #     .unsqueeze(3)
+        #     for ptype in prototype
+        # ]
         density_maps_list = []
         for ptype in prototype:
-            similarity_maps = []
-            for i in range(batch_size):
-                for j in range(self.n_boxes):
-                    similarity = F.conv2d(
-                        feature[i],
-                        ptype[i, j],
-                        groups=self.d,
-                        padding=(self.s - 1) // 2,
-                    )
-                    assert similarity.shape == (self.d, h, w)
-                    similarity_maps.append(similarity)
-            similarity_maps = torch.stack(similarity_maps, dim=0).reshape(
-                batch_size, self.n_boxes, self.d, h, w
-            )
-            response_maps = similarity_maps.max(dim=1, keepdim=False)[0]
+            # similarity_maps = []
+            # for i in range(batch_size):
+            #     for j in range(self.n_boxes):
+            #         similarity = F.conv2d(
+            #             feature[i],
+            #             ptype[i, j],
+            #             groups=self.d,
+            #             padding=(self.s - 1) // 2,
+            #         )
+            #         assert similarity.shape == (self.d, h, w)
+            #         similarity_maps.append(similarity)
+            # similarity_maps = torch.stack(similarity_maps, dim=0).reshape(
+            #     batch_size, self.n_boxes, self.d, h, w
+            # )
+            # response_maps = similarity_maps.max(dim=1, keepdim=False)[0]
+            response_maps = self.prototype2response_map(ptype, feature)
             density_maps = self.decoder(response_maps)
             density_maps_list.append(density_maps)
         return density_maps_list
@@ -294,7 +355,7 @@ class ConvBlock(nn.Module):
             return self.body(x)
         
 class VGG16Trans(nn.Module):
-    def __init__(self, up_scale=8):
+    def __init__(self, up_scale=8, roi=roi_pool):
         super().__init__()
         self.scale = 16 // up_scale
         self.vgg16bn = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)
@@ -302,28 +363,42 @@ class VGG16Trans(nn.Module):
         self.encoder = list(self.vgg16bn.children())[0]
         # remove last max pooling layer
         del self.encoder[-1]
-        self.tran_decoder = EncoderOnlyTransformer(dim=512)
+        self.tran_decoder = EncoderOnlyTransformer(dim=1024)
         self.upsampler = nn.Sequential(
-            ConvBlock(512, 256),
+            ConvBlock(1024, 256),
             ConvBlock(256, 128),
             ConvBlock(128, 64),
             nn.Conv2d(64, 1, kernel_size=1),
             nn.ReLU(inplace=True),
         )
+        self.ope = GenshinOPE(d=3, s=3, iterations=3, n_boxes=3, roi=roi)
+        self.prototype2response = Prototype2ResponseMap(3, 3, 3)
     
-    def forward(self, x, *args):
+    def forward(self, x, boxes: list[torch.Tensor]):
         # x: (batch_size, 3, H, W)
         _, _, H, W = x.size()
+
+        # prototype: [(batch_size, n_boxes*s*s, 3)]
+        prototypes = self.ope(x, boxes, spatial_scale=1)
+        prototype = prototypes[-1]
+        # response: (batch_size, 3, h, w)
+        response = self.prototype2response(prototype, x)
+        
         # x: (batch_size, c, h, w)
         x = self.encoder(x)
         batch_size, c, h, w = x.size()
-        # x: (batch_size, hw, c)
+
+        # re: (batch_size, c, h, w)
+        re = self.encoder(response)
+        x = torch.cat([x, re], dim=1)
+
+        # x: (batch_size, hw, c*2)
         x = x.flatten(2).permute(0, 2, 1)
-        # x: (batch_size, hw, c)
+        # x: (batch_size, hw, c*2)
         x = self.tran_decoder(x)
-        # x: (batch_size, c, h, w)
-        x = x.permute(0, 2, 1).reshape(batch_size, c, h, w)
-        # x: (batch_size, c, h*2, w*2)
+        # x: (batch_size, c*2, h, w)
+        x = x.permute(0, 2, 1).reshape(batch_size, c*2, h, w)
+        # x: (batch_size, c*2, h*2, w*2)
         x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
         # x: (batch_size, 1, H, W)
         x = self.upsampler(x)
