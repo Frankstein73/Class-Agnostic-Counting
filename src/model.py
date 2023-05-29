@@ -58,8 +58,12 @@ class Encoder(nn.Module):
     def __init__(self, d):
         super(Encoder, self).__init__()
         resnet = resnet50(weights=torchvision.models.ResNet50_Weights.DEFAULT)
+        vgg16 = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)
         modules = list(resnet.children())[:-3]
+        vgg_modules = list(vgg16.children())[0]
+        del vgg_modules[-1]
         self.resnet = nn.Sequential(*modules)
+        self.vgg = vgg_modules
         # self.resnet.requires_grad_(False)
         self.upsample = nn.ConvTranspose2d(
             1024, 512, kernel_size=2, stride=2, padding=0
@@ -73,6 +77,7 @@ class Encoder(nn.Module):
         )
 
     def forward(self, x):
+        # out = self.vgg(x)
         out = self.resnet(x)
         out = self.upsample(out)
         out = self.conv1x1(out)
