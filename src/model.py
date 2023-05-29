@@ -355,7 +355,7 @@ class ConvBlock(nn.Module):
             return self.body(x)
         
 class VGG16Trans(nn.Module):
-    def __init__(self, up_scale=8, roi=roi_pool):
+    def __init__(self, up_scale=8, roi=roi_align):
         super().__init__()
         self.scale = 16 // up_scale
         self.vgg16bn = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)

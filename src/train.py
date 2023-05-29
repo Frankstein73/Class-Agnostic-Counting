@@ -89,7 +89,7 @@ class LightningVGG16(pl.LightningModule):
 
         self.mae.update(predicted_count, count)
         self.mse.update(predicted_count, count)
-        if self.val_save_figs:
+        if self.val_save_figs and batch_idx < 10:
             save_figs(image, boxes, None, [output], f"val_{batch_idx}", "val")
 
     def on_validation_epoch_end(self):
@@ -147,7 +147,7 @@ class LightningLOCA(pl.LightningModule):
 
         predicted_count = output.sum(dim=(1, 2, 3))
 
-        if self.val_save_figs:
+        if self.val_save_figs and batch_idx < 10:
             save_figs(image, boxes, None, outputs, f"val_{batch_idx}", "val")
         self.mae.update(predicted_count, count)
         self.mse.update(predicted_count, count)

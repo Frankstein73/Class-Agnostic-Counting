@@ -177,7 +177,7 @@ normalize = transforms.Compose([transforms.ToTensor(),
 
 def get_transform(split, wh=512):
     if split == 'train':
-        custom_transforms = transforms.Compose([Filpping(), ColorJitting(), Tiling(), ResizeImageWithGT(wh), ])
+        custom_transforms = transforms.Compose([Filpping(), ColorJitting(), ResizeImageWithGT(wh), ])
     else:
         custom_transforms = transforms.Compose([ResizeImage(wh)])
     return custom_transforms
