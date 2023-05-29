@@ -59,6 +59,8 @@ class LightningVGG16(pl.LightningModule):
         self.model = VGG16Trans(up_scale)
         self.up_scale = up_scale
         self.mae = torchmetrics.MeanAbsoluteError()
+        self.val_mae = torchmetrics.MeanAbsoluteError()
+        self.val_mse = torchmetrics.MeanSquaredError()
         self.mse = torchmetrics.MeanSquaredError()
         self.val_save_figs = val_save_figs
 
@@ -79,6 +81,7 @@ class LightningVGG16(pl.LightningModule):
 
         loss = F.mse_loss(output, small_gt_density, reduction="sum")
         loss += self.mae(predicted_count, count) * 0.3
+        # loss += self.
         self.log('train_loss', loss, prog_bar=True)
         return loss
     
@@ -89,14 +92,17 @@ class LightningVGG16(pl.LightningModule):
         output = self.forward(image, boxes)
         predicted_count = output.sum(dim=(1, 2, 3))
 
-        self.mae.update(predicted_count, count)
-        self.mse.update(predicted_count, count)
+        self.val_mae.update(predicted_count, count)
+        self.val_mse.update(predicted_count, count)
         if self.val_save_figs and batch_idx < 10:
             save_figs(image, boxes, None, [output], f"val_{batch_idx}", "val")
 
+    
     def on_validation_epoch_end(self):
-        self.log('val_mae', self.mae.compute(), prog_bar=True)
-        self.log('val_rmse', torch.sqrt(self.mse.compute()), prog_bar=True)
+        self.log('val_mae', self.val_mae.compute(), prog_bar=True)
+        self.log('val_rmse', torch.sqrt(self.val_mse.compute()), prog_bar=True)
+        self.val_mae.reset()
+        self.val_mse.reset()
         self.mae.reset()
         self.mse.reset()
 
@@ -200,5 +206,5 @@ if __name__ == '__main__':
         save_top_k=4,
         mode='min',
     )
-    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('vggtrans', project='baseline'), precision=16, gradient_clip_val=0.1, callbacks=[CheckpointCallback])
+    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('vggtrans', project='bs'), precision=16, gradient_clip_val=0.1, callbacks=[CheckpointCallback])
     trainer.fit(model, dm)
