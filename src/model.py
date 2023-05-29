@@ -301,7 +301,7 @@ class LOCA(nn.Module):
             #     batch_size, self.n_boxes, self.d, h, w
             # )
             # response_maps = similarity_maps.max(dim=1, keepdim=False)[0]
-            response_maps = self.prototype2response_map(ptype, feature)
+            response_maps = self.prototype2response(ptype, feature)
             density_maps = self.decoder(response_maps)
             density_maps_list.append(density_maps)
         return density_maps_list
@@ -355,20 +355,19 @@ class ConvBlock(nn.Module):
             return self.body(x)
         
 class VGG16Trans(nn.Module):
-    def __init__(self, up_scale=8, roi=roi_align):
+    def __init__(self, roi=roi_align):
         super().__init__()
-        self.scale = 16 // up_scale
         self.vgg16bn = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)
         # in fact, [0] is an `nn.Sequential`
         self.encoder = list(self.vgg16bn.children())[0]
         # remove last max pooling layer
         del self.encoder[-1]
-        self.tran_decoder = EncoderOnlyTransformer(dim=1024)
+        self.tran_decoder = EncoderOnlyTransformer(dim=512)
         self.upsampler = nn.Sequential(
-            ConvBlock(1024, 256),
-            ConvBlock(256, 128),
-            ConvBlock(128, 64),
-            nn.Conv2d(64, 1, kernel_size=1),
+            ConvBlock(512, 256),
+            ConvBlock(256, 256),
+            nn.PixelShuffle(16),
+            nn.Conv2d(1, 1, kernel_size=1),
             nn.ReLU(inplace=True),
         )
         self.ope = GenshinOPE(d=3, s=3, iterations=3, n_boxes=3, roi=roi)
@@ -390,22 +389,20 @@ class VGG16Trans(nn.Module):
 
         # re: (batch_size, c, h, w)
         re = self.encoder(response)
-        x = torch.cat([x, re], dim=1)
+        x = x + re
 
-        # x: (batch_size, hw, c*2)
+        # x: (batch_size, hw, c)
         x = x.flatten(2).permute(0, 2, 1)
-        # x: (batch_size, hw, c*2)
+        # x: (batch_size, hw, c)
         x = self.tran_decoder(x)
-        # x: (batch_size, c*2, h, w)
-        x = x.permute(0, 2, 1).reshape(batch_size, c*2, h, w)
-        # x: (batch_size, c*2, h*2, w*2)
-        x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
+        # x: (batch_size, c, h, w)
+        x = x.permute(0, 2, 1).reshape(batch_size, c, h, w)
         # x: (batch_size, 1, H, W)
         x = self.upsampler(x)
         return x
 
 if __name__ == "__main__":
-    img = torch.randn(2, 3, 512, 512)
+    img = torch.randn(2, 3, 384, 576)
     boxes = [
         torch.tensor(
             [[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32
@@ -414,9 +411,8 @@ if __name__ == "__main__":
             [[0, 0, 56, 56], [0, 0, 28, 28], [0, 0, 14, 14]], dtype=torch.float32
         ),
     ]
-    # loca = LOCA(512, 512, 256, 7, roi_pool)
     loca = VGG16Trans()
-    loca.train()
+    # loca.train()
     print(loca(img, boxes).shape)
     # loca.eval()
     # print(len(loca(img, boxes)))

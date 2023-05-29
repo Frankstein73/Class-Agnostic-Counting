@@ -1,4 +1,6 @@
 from data import FSC147DataModule
+from datasets.dataset import OurFSC147DataModule
+from loss.genloss import GeneralizedLoss
 from model import LOCA, VGG16Trans
 from torchvision.ops import roi_align, roi_pool
 import torch
@@ -6,6 +8,8 @@ import lightning.pytorch as pl
 from torch.nn import functional as F
 import torchmetrics
 from lightning.pytorch import seed_everything
+
+import ssim
 
 def save_figs(images, boxes_es, gt_densities, outputs, prefix, save_path="test"):
     import matplotlib.pyplot as plt
@@ -54,12 +58,13 @@ def test_loca(dm, model):
         save_figs(image, boxes, gt_density, outputs, f"train_{i}", save_path="test_loca")
 
 class LightningVGG16(pl.LightningModule):
-    def __init__(self, up_scale=8, val_save_figs=True):
+    def __init__(self, val_save_figs=True):
         super().__init__()
-        self.model = VGG16Trans(up_scale)
-        self.up_scale = up_scale
+        self.model = VGG16Trans()
         self.mae = torchmetrics.MeanAbsoluteError()
         self.mse = torchmetrics.MeanSquaredError()
+        self.ssim_loss = ssim.SSIM(window_size=11)
+        self.gen_loss = GeneralizedLoss()
         self.val_save_figs = val_save_figs
 
     def forward(self, image, boxes):
@@ -67,23 +72,27 @@ class LightningVGG16(pl.LightningModule):
         return self.model(image, boxes)
 
     def training_step(self, batch, batch_idx):
-        image = batch['image']
-        boxes = batch['boxes']
-        gt_density = batch['gt_density']
-        count = batch['count']
+        image, boxes, dotmaps, _ = batch
 
         output = self.forward(image, boxes)
 
-        small_gt_density = F.avg_pool2d(gt_density, self.up_scale) * (self.up_scale ** 2)
+        # ssim_loss = 1 - self.ssim_loss(output, small_gt_density)
+        # loss = F.mse_loss(output, small_gt_density, reduction="mean") + ssim_loss * 0.001
+        
 
-        loss = F.mse_loss(output, small_gt_density, reduction="sum")
+        # bsize (batch_size, num_boxes, 2)
+        bsize = torch.stack([boxes[:, :, 2] - boxes[:, :, 0], boxes[:, :, 3] - boxes[:, :, 1]], dim=-1)
+        # bs_mean (batch_size, num_boxes)
+        bs_mean = bsize.float().mean(dim=1)
+
+        loss = self.gen_loss(output, dotmaps, box_size=bs_mean)
         self.log('train_loss', loss, prog_bar=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
-        image = batch['image']
-        boxes = batch['boxes']
-        count = batch['count']
+        image, boxes, dotmaps, _ = batch
+
+        count = dotmaps.sum(dim=(1,2,3))
         output = self.forward(image, boxes)
         predicted_count = output.sum(dim=(1, 2, 3))
 
@@ -104,7 +113,9 @@ class LightningVGG16(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5),
+                # "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2,factor=0.5),
                 "interval": "epoch",
+                "monitor": "val_mae",
             }
         }
 
@@ -159,21 +170,18 @@ class LightningLOCA(pl.LightningModule):
         self.mse.reset()
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), lr=1e-4, weight_decay=1e-4)
+        return torch.optim.AdamW(self.parameters(), lr=20, weight_decay=1e-4)
 
 if __name__ == '__main__':
     seed_everything(42)
     
-    dm = FSC147DataModule(
-        anno_file='../data/annotation_FSC147_384.json',
-        data_split_file='../data/Train_Test_Val_FSC_147.json',
-        im_dir='../data/images_384_VarV2',
-        gt_dir='../data/gt_density_map_adaptive_384_VarV2',
-        batch_size=8
+    dm = OurFSC147DataModule(
+        root_path="../data",
+        batch_size=4
     )   
     # model = LightningLOCA(aux=0, val_save_figs=True)
     model = LightningVGG16(val_save_figs=True)
-    # model = LightningLOCA.load_from_checkpoint("v1.ckpt")
+    # model = LightningVGG16.load_from_checkpoint("v1.ckpt")
     # test_loca(dm, model)
     
     # dm.setup()
@@ -191,5 +199,5 @@ if __name__ == '__main__':
     # ax = fig.add_subplot(122)
     # ax.imshow(gt_density[0].permute(1,2,0).numpy())
     # plt.show()
-    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('vggtrans', project='baseline'), precision=16, gradient_clip_val=0.1)
+    trainer = pl.Trainer(max_epochs=200, devices=[0], logger=pl.loggers.WandbLogger('vggtrans', project='baseline-v2'), precision=16, gradient_clip_val=0.1)
     trainer.fit(model, dm)
