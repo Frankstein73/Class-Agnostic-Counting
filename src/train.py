@@ -103,7 +103,7 @@ class LightningVGG16(pl.LightningModule):
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
-                "scheduler": torch.optim.lr_scheduler.StepLR(optimizer, step_size=400, gamma=0.5),
+                "scheduler": torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5),
                 "interval": "epoch",
             }
         }
