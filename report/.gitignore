@@ -1,0 +1,10 @@
+*.aux
+*.log
+*.synctex.gz
+*.fls
+*.toc
+*.upa
+*.upb
+*.out
+*.pdf
+_minted-document/

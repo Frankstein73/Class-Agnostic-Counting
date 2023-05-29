@@ -1,0 +1,136 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2020
+
+% ready for submission
+% \usepackage{neurips_2020}
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+\usepackage[preprint]{neurips_2020}
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2020}
+
+% to avoid loading the natbib package, add option nonatbib:
+%    \usepackage[nonatbib]{neurips_2020}
+\usepackage{ctex}
+\usepackage{xurl}
+\usepackage{minted}
+\usepackage{graphicx}
+\usepackage{pdfcomment}		% generate PDF index.
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{float}
+\bibliographystyle{unsrt}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\newtheorem{assumption}{Assumption}
+\newtheorem{definition}{Definition}
+
+\title{基于 Rust 的深度学习框架设计：Raddar}
+
+\author{% Reviese your personal information here
+葛煦旸 \\ % Your name 
+计算机科学技术学院 \\ % CS 
+ID: 20307140003 \\
+\texttt{20307140003@fudan.edu.cn} \\
+\AND
+许冬 \\ % Your name 
+计算机科学技术学院 \\ % CS 
+ID: 20307140036 \\
+\texttt{dongxu20@fudan.edu.cn} \\
+\AND
+舒文韬 \\ % Your name 
+计算机科学技术学院 \\ % CS 
+ID: 20307140057 \\
+\texttt{20307140057@fudan.edu.cn} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+	
+\end{abstract}
+
+\section{背景介绍}
+\subsection{生态研究}
+\subsection{相关项目}
+\subsubsection{tch-rs}
+\subsubsection{RustCUDA}
+
+\section{设计思路}
+\subsection{易用性}
+\subsection{高效性}
+
+\section{实现思路}
+\subsection{张量}
+\subsection{数据处理}
+\subsubsection{数据集}
+\subsubsection{数据加载器}
+\subsection{模型}
+\subsection{优化器}
+
+\section{结论和前景}
+
+
+\section{贡献}
+本项目由三人合作完成，\textbf{排名不分先后}。各合作者的主要贡献部分见表 \ref{tab:contrib}。
+
+\begin{table}[H]
+	\centering
+	\caption{贡献者贡献明细}
+	\label{tab:contrib}
+	\begin{tabular}{cp{10cm}}
+		\toprule
+		姓名   & 贡献                                                                     \\
+		\midrule
+		葛煦旸 & 主要负责项目主要框架的搭建。
+		\begin{itemize}
+			\item \verb|dataset| 中数据集与数据加载器的开发；
+			\item \verb|core| 中的张量特征抽象；
+			\item \verb|nn| 中的 \verb|Trainable| 与 \verb|Module| 的设计，及一些最基本的模型实现；
+			\item \verb|raddar_derive| 中的过程宏；
+		\end{itemize}                                                                      \\
+		许冬   & 主要负责 \verb|raddar_array| 子项目的开发。
+		\begin{itemize}
+			\item \verb|raddar_array| 中动态计算图、自动微分、动态类型等各个部分的结构设计；
+			\item \verb|raddar_array| 中所有张量计算和反向传播算法的接口设计和实现；
+			\item \verb|raddar_array| 的设计文档和使用文档的撰写。
+		\end{itemize}                                                         \\
+		舒文韬 & 主要负责 \verb|optim| 和 \verb|nn| 部分的开发。
+		\begin{itemize}
+			\item \verb|optim| 中优化器、调度器的接口设计和实现；
+			\item \verb|nn| 中基本模块的接口设计和实现；
+			\item \verb|nn| 中内置模型的接口设计和实现；
+		\end{itemize}                                                         \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+\nocite{*}
+\bibliography{reference}
+
+\appendix
+\part*{Appendix}
+\section{Raddar Array 实现概述}\label{app:rad_arr_impl}
+\subsection{简介}
+\subsection{张量表示}
+\subsubsection{去泛型化}
+\subsubsection{内存优化}
+\subsection{组合视图}
+\subsection{结语}
+\end{document}
