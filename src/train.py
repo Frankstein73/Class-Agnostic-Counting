@@ -62,8 +62,9 @@ class LightningVGG16(pl.LightningModule):
         self.mse = torchmetrics.MeanSquaredError()
         self.val_save_figs = val_save_figs
 
-    def forward(self, image):
-        return self.model(image)
+    def forward(self, image, boxes):
+        boxes = [box for box in boxes]
+        return self.model(image, boxes)
 
     def training_step(self, batch, batch_idx):
         image = batch['image']
@@ -71,7 +72,7 @@ class LightningVGG16(pl.LightningModule):
         gt_density = batch['gt_density']
         count = batch['count']
 
-        output = self.forward(image)
+        output = self.forward(image, boxes)
 
         small_gt_density = F.avg_pool2d(gt_density, self.up_scale) * (self.up_scale ** 2)
 
@@ -83,7 +84,7 @@ class LightningVGG16(pl.LightningModule):
         image = batch['image']
         boxes = batch['boxes']
         count = batch['count']
-        output = self.forward(image)
+        output = self.forward(image, boxes)
         predicted_count = output.sum(dim=(1, 2, 3))
 
         self.mae.update(predicted_count, count)
@@ -170,8 +171,8 @@ if __name__ == '__main__':
         gt_dir='../data/gt_density_map_adaptive_384_VarV2',
         batch_size=8
     )   
-    model = LightningLOCA(aux=0, val_save_figs=True)
-    # model = LightningVGG16()
+    # model = LightningLOCA(aux=0, val_save_figs=True)
+    model = LightningVGG16(val_save_figs=True)
     # model = LightningLOCA.load_from_checkpoint("v1.ckpt")
     # test_loca(dm, model)
     
