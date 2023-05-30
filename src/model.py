@@ -9,6 +9,8 @@ from torchvision.models import resnet50, vgg16_bn, VGG16_BN_Weights
 from torchvision.ops import roi_align, roi_pool
 import torchvision
 
+from our_model import Vgg19FPN
+
 
 class MHABlock(nn.Module):
     def __init__(self, n_heads, d_in, d_k, d_v):
@@ -392,22 +394,23 @@ class GroupOp(nn.Module):
 class VGG16Trans(nn.Module):
     def __init__(self, roi=roi_align):
         super().__init__()
-        self.vgg16bn = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)
+        # self.vgg16bn = vgg16_bn(weights=VGG16_BN_Weights.DEFAULT)
         # in fact, [0] is an `nn.Sequential`
-        self.encoder = list(self.vgg16bn.children())[0]
-        # remove last max pooling layer
-        del self.encoder[-1]
+        # self.encoder = list(self.vgg16bn.children())[0]
+        # # remove last max pooling layer
+        # del self.encoder[-1]
 
-        meet_max_pool = 0
-        for i, mod in enumerate(iter(self.encoder)):
-            if isinstance(mod, nn.MaxPool2d):
-                self.encoder[i] = nn.AvgPool2d(kernel_size=2)
-                meet_max_pool += 1
-            if meet_max_pool == 4:
-                break
-        del self.encoder[i:]
-        self.cls_iden = ConvBlock(512,512,1,d_rate=0)
-        self.den_iden = ConvBlock(512,512,1,d_rate=0)
+        # meet_max_pool = 0
+        # for i, mod in enumerate(iter(self.encoder)):
+        #     if isinstance(mod, nn.MaxPool2d):
+        #         self.encoder[i] = nn.AvgPool2d(kernel_size=2)
+        #         meet_max_pool += 1
+        #     if meet_max_pool == 4:
+        #         break
+        # del self.encoder[i:]
+        self.encoder = Vgg19FPN()
+        # self.cls_iden = ConvBlock(512,512,1,d_rate=0)
+        # self.den_iden = ConvBlock(512,512,1,d_rate=0)
         
         self.tran_decoder = EncoderOnlyTransformer(dim=512)
         self.upsampler = nn.Sequential(
@@ -425,11 +428,15 @@ class VGG16Trans(nn.Module):
         # x: (batch_size, 3, H, W)
         _, _, H, W = x.size()
 
+        
+        boxes_tensor = torch.stack(boxes)
+        bsize = torch.stack([boxes_tensor[:, :, 2] - boxes_tensor[:, :, 0], boxes_tensor[:, :, 3] - boxes_tensor[:, :, 1]], dim=-1)
+        # bs_mean (batch_size, num_boxes)
+        bs_mean = bsize.float().mean(dim=1)
+
         # x: (batch_size, c, h, w)
-        x = self.encoder(x)
-        batch_size, c, h, w = x.size()
-        clsfea = self.cls_iden(x)
-        denfea = self.den_iden(x)
+        clsfea, denfea = self.encoder(x, bs_mean)
+        batch_size, c, h, w = denfea.size()
 
         # prototype: [(batch_size, n_boxes*s*s, 3)]
         prototypes = self.ope(clsfea, boxes, spatial_scale=1./8)
