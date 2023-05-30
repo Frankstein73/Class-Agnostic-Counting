@@ -77,8 +77,10 @@ class LightningVGG16(pl.LightningModule):
 
         small_gt_density = F.avg_pool2d(gt_density, self.up_scale) * (self.up_scale ** 2)
 
-        loss = F.mse_loss(output, small_gt_density, reduction="sum")
-        loss += self.mae(predicted_count, count) * 0.3
+        m = count.sum()
+
+        loss = (output - small_gt_density).norm(p=2) ** 2 / m
+        # loss += torch.abs(predicted_count - count).mean() * 0.03
         self.log('train_loss', loss, prog_bar=True)
         return loss
     
@@ -175,6 +177,7 @@ if __name__ == '__main__':
     )   
     # model = LightningLOCA(aux=0, val_save_figs=True)
     model = LightningVGG16(val_save_figs=True)
+    # model = LightningVGG16.load_from_checkpoint("../best-9.320.ckpt")
     # model = LightningLOCA.load_from_checkpoint("v1.ckpt")
     # test_loca(dm, model)
     
@@ -193,5 +196,13 @@ if __name__ == '__main__':
     # ax = fig.add_subplot(122)
     # ax.imshow(gt_density[0].permute(1,2,0).numpy())
     # plt.show()
-    trainer = pl.Trainer(max_epochs=200, devices=[2], logger=pl.loggers.WandbLogger('vggtrans', project='baseline'), precision=16, gradient_clip_val=0.1)
+    CheckpointCallback = pl.callbacks.ModelCheckpoint(
+        monitor='val_mae',
+        dirpath='checkpoints',
+        filename='vggtrans-{epoch:02d}-{val_mae:.2f}',
+        save_top_k=4,
+        mode='min',
+    )
+    trainer = pl.Trainer(max_epochs=200, devices=[1], logger=pl.loggers.WandbLogger('vggtrans', project='baseline'), precision=16, gradient_clip_val=0.1, callbacks=[CheckpointCallback])
     trainer.fit(model, dm)
+    # trainer.validate(model, datamodule=dm)
