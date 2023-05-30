@@ -64,7 +64,7 @@ class LightningVGG16(pl.LightningModule):
         self.mae = torchmetrics.MeanAbsoluteError()
         self.mse = torchmetrics.MeanSquaredError()
         self.ssim_loss = ssim.SSIM(window_size=11)
-        self.gen_loss = GeneralizedLoss()
+        self.gen_loss = GeneralizedLoss(factor=128)
         self.val_save_figs = val_save_figs
 
     def forward(self, image, boxes):
@@ -79,13 +79,16 @@ class LightningVGG16(pl.LightningModule):
         # ssim_loss = 1 - self.ssim_loss(output, small_gt_density)
         # loss = F.mse_loss(output, small_gt_density, reduction="mean") + ssim_loss * 0.001
         
+        # count = dotmaps.sum(dim=(1,2,3))
+        # predicted_count = output.sum(dim=(1, 2, 3))
 
         # bsize (batch_size, num_boxes, 2)
         bsize = torch.stack([boxes[:, :, 2] - boxes[:, :, 0], boxes[:, :, 3] - boxes[:, :, 1]], dim=-1)
         # bs_mean (batch_size, num_boxes)
         bs_mean = bsize.float().mean(dim=1)
 
-        loss = self.gen_loss(output, dotmaps, box_size=bs_mean)
+        # loss = torch.norm(output - dotmaps,  p=2) ** 2 + 0.3 * F.l1_loss(predicted_count, count, reduction="sum")
+        loss = self.gen_loss(output, dotmaps, bs_mean)
         self.log('train_loss', loss, prog_bar=True)
         return loss
     
@@ -93,7 +96,7 @@ class LightningVGG16(pl.LightningModule):
         image, boxes, dotmaps, _ = batch
 
         count = dotmaps.sum(dim=(1,2,3))
-        output = self.forward(image, boxes)
+        output = self.forward(image, boxes) / self.gen_loss.factor
         predicted_count = output.sum(dim=(1, 2, 3))
 
         self.mae.update(predicted_count, count)
@@ -199,5 +202,5 @@ if __name__ == '__main__':
     # ax = fig.add_subplot(122)
     # ax.imshow(gt_density[0].permute(1,2,0).numpy())
     # plt.show()
-    trainer = pl.Trainer(max_epochs=200, devices=[0], logger=pl.loggers.WandbLogger('vggtrans', project='baseline-v2'), precision=16, gradient_clip_val=0.1)
+    trainer = pl.Trainer(max_epochs=200, devices=[0], logger=pl.loggers.WandbLogger('vggtrans', project='baseline-v2'), precision=16, gradient_clip_val=0.1, log_every_n_steps=1)
     trainer.fit(model, dm)

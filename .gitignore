@@ -4,3 +4,4 @@ src/wandb
 src/lightning_logs
 *.ckpt
 **/__pycache__
+exp

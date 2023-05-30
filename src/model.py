@@ -216,6 +216,7 @@ class Decoder(nn.Module):
         self.upsample = nn.Upsample(size=(h_out, w_out), mode="bilinear")
         self.conv1x1 = nn.Conv2d(32, 1, 1)
         self.leakyrelu = nn.LeakyReLU()
+        self.weights_normal_init(self)
 
     def forward(self, x):
         x = self.conv(x)
@@ -223,6 +224,19 @@ class Decoder(nn.Module):
         x = self.conv1x1(x)
         x = self.leakyrelu(x)
         return x
+    
+    def weights_normal_init(self, model, dev=0.005):
+        if isinstance(model, list):
+            for m in model:
+                self.weights_normal_init(m, dev)
+        else:
+            for m in model.modules():
+                if isinstance(m, nn.Conv2d):
+                    m.weight.data.normal_(0.0, dev)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0.0)
+                elif isinstance(m, nn.Linear):
+                    m.weight.data.normal_(0.0, dev)
     
 class Prototype2ResponseMap(nn.Module):
     def __init__(self, d, s, n_boxes):
@@ -338,15 +352,17 @@ class ConvBlock(nn.Module):
         self.res_link = res_link
         if batch_norm:
             self.body = nn.Sequential(
-                nn.Conv2d(cin, cout, k_size, padding=d_rate, dilation=d_rate),
+                nn.Conv2d(cin, cout, k_size, padding=d_rate),
                 nn.BatchNorm2d(cout),
                 nn.ReLU(inplace=True),
             )
         else:
             self.body = nn.Sequential(
-                nn.Conv2d(cin, cout, k_size, padding=d_rate, dilation=d_rate),
+                nn.Conv2d(cin, cout, k_size, padding=d_rate),
                 nn.ReLU(inplace=True),
             )
+
+        self.weights_normal_init(self.body)
 
     def forward(self, x):
         if self.res_link:
@@ -354,6 +370,25 @@ class ConvBlock(nn.Module):
         else:
             return self.body(x)
         
+    def weights_normal_init(self, model, dev=0.005):
+        if isinstance(model, list):
+            for m in model:
+                self.weights_normal_init(m, dev)
+        else:
+            for m in model.modules():
+                if isinstance(m, nn.Conv2d):
+                    m.weight.data.normal_(0.0, dev)
+                    if m.bias is not None:
+                        m.bias.data.fill_(0.0)
+                elif isinstance(m, nn.Linear):
+                    m.weight.data.normal_(0.0, dev)
+        
+class GroupOp(nn.Module):
+    def forward(self, feature, anchor):
+        sim = F.normalize(feature, 2, dim=1) * F.normalize(anchor, 2, dim=1)
+        sim = F.relu(sim.sum(dim=1, keepdim=True), inplace=True)
+        return sim
+    
 class VGG16Trans(nn.Module):
     def __init__(self, roi=roi_align):
         super().__init__()
@@ -362,40 +397,58 @@ class VGG16Trans(nn.Module):
         self.encoder = list(self.vgg16bn.children())[0]
         # remove last max pooling layer
         del self.encoder[-1]
+
+        meet_max_pool = 0
+        for i, mod in enumerate(iter(self.encoder)):
+            if isinstance(mod, nn.MaxPool2d):
+                self.encoder[i] = nn.AvgPool2d(kernel_size=2)
+                meet_max_pool += 1
+            if meet_max_pool == 4:
+                break
+        del self.encoder[i:]
+        self.cls_iden = ConvBlock(512,512,1,d_rate=0)
+        self.den_iden = ConvBlock(512,512,1,d_rate=0)
+        
         self.tran_decoder = EncoderOnlyTransformer(dim=512)
         self.upsampler = nn.Sequential(
             ConvBlock(512, 256),
             ConvBlock(256, 256),
-            nn.PixelShuffle(16),
-            nn.Conv2d(1, 1, kernel_size=1),
+            nn.PixelShuffle(8),
+            nn.Conv2d(4, 1, kernel_size=1),
             nn.ReLU(inplace=True),
         )
-        self.ope = GenshinOPE(d=3, s=3, iterations=3, n_boxes=3, roi=roi)
-        self.prototype2response = Prototype2ResponseMap(3, 3, 3)
+        self.cross = GroupOp()
+        self.ope = GenshinOPE(d=512, s=3, iterations=3, n_boxes=3, roi=roi)
+        self.prototype2response = Prototype2ResponseMap(512, 3, 3)
     
     def forward(self, x, boxes: list[torch.Tensor]):
         # x: (batch_size, 3, H, W)
         _, _, H, W = x.size()
 
-        # prototype: [(batch_size, n_boxes*s*s, 3)]
-        prototypes = self.ope(x, boxes, spatial_scale=1)
-        prototype = prototypes[-1]
-        # response: (batch_size, 3, h, w)
-        response = self.prototype2response(prototype, x)
-        
         # x: (batch_size, c, h, w)
         x = self.encoder(x)
         batch_size, c, h, w = x.size()
+        clsfea = self.cls_iden(x)
+        denfea = self.den_iden(x)
+
+        # prototype: [(batch_size, n_boxes*s*s, 3)]
+        prototypes = self.ope(clsfea, boxes, spatial_scale=1./8)
+        prototype = prototypes[-1]
+        
+        # response: (batch_size, 3, h, w)
+        response = self.prototype2response(prototype, clsfea)
 
         # re: (batch_size, c, h, w)
-        re = self.encoder(response)
-        x = x + re
+        re = response.mean(dim=1, keepdim=True)
+        # re = re.mean(dim=(-1, -2), keepdim=True)
+        mask = self.cross(clsfea, re)
+        x = denfea * mask
 
-        # x: (batch_size, hw, c)
+        # x: (batch_size, hw, C)
         x = x.flatten(2).permute(0, 2, 1)
-        # x: (batch_size, hw, c)
+        # x: (batch_size, hw, C)
         x = self.tran_decoder(x)
-        # x: (batch_size, c, h, w)
+        # x: (batch_size, C, h, w)
         x = x.permute(0, 2, 1).reshape(batch_size, c, h, w)
         # x: (batch_size, 1, H, W)
         x = self.upsampler(x)
@@ -413,6 +466,7 @@ if __name__ == "__main__":
     ]
     loca = VGG16Trans()
     # loca.train()
+    # print(loca)
     print(loca(img, boxes).shape)
     # loca.eval()
     # print(len(loca(img, boxes)))
