@@ -3,5 +3,5 @@ src/__pycache__
 src/wandb
 src/lightning_logs
 *.ckpt
-val
+val*
 **/__pycache__

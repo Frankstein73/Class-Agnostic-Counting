@@ -311,7 +311,7 @@ class EncoderOnlyTransformer(nn.Module):
     def __init__(self, layers=4, dim=512, norm=None):
         super().__init__()
         d_model = dim
-        nhead = 2
+        nhead = 8
         dim_feedforward = 2048
         dropout = 0.1
         activation = "relu"
@@ -363,13 +363,24 @@ class VGG16Trans(nn.Module):
         self.encoder = list(self.vgg16bn.children())[0]
         # remove last max pooling layer
         del self.encoder[-1]
-        self.tran_decoder = EncoderOnlyTransformer(dim=1024)
+        self.tran_decoder = EncoderOnlyTransformer(dim=576)
         self.upsampler = nn.Sequential(
-            ConvBlock(1024, 256),
+            ConvBlock(576, 256),
             ConvBlock(256, 128),
             ConvBlock(128, 64),
             nn.Conv2d(64, 1, kernel_size=1),
             nn.ReLU(inplace=True),
+        )
+        self.conv_response = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.BatchNorm2d(16),
+            nn.ReLU(inplace=True),
+            nn.AvgPool2d(4),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.AvgPool2d(4),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
         )
         self.ope = GenshinOPE(d=3, s=3, iterations=3, n_boxes=3, roi=roi)
         self.prototype2response = Prototype2ResponseMap(3, 3, 3)
@@ -381,24 +392,26 @@ class VGG16Trans(nn.Module):
         # prototype: [(batch_size, n_boxes*s*s, 3)]
         prototypes = self.ope(x, boxes, spatial_scale=1)
         prototype = prototypes[-1]
-        # response: (batch_size, 3, h, w)
+        # response: (batch_size, 3, H, W)
         response = self.prototype2response(prototype, x)
         
         # x: (batch_size, c, h, w)
         x = self.encoder(x)
         batch_size, c, h, w = x.size()
 
-        # re: (batch_size, c, h, w)
-        re = self.encoder(response)
-        x = torch.cat([x, re], dim=1)
+        # response: (batch_size, 64, h, w)
+        response = self.conv_response(response)
 
-        # x: (batch_size, hw, c*2)
+        # x: (batch_size, c + 64, h, w)
+        x = torch.cat([x, response], dim=1)
+
+        # x: (batch_size, hw, c + 64)
         x = x.flatten(2).permute(0, 2, 1)
-        # x: (batch_size, hw, c*2)
+        # x: (batch_size, hw, c + 64)
         x = self.tran_decoder(x)
-        # x: (batch_size, c*2, h, w)
-        x = x.permute(0, 2, 1).reshape(batch_size, c*2, h, w)
-        # x: (batch_size, c*2, h*2, w*2)
+        # x: (batch_size, c + 64, h, w)
+        x = x.permute(0, 2, 1).reshape(batch_size, c + 64, h, w)
+        # x: (batch_size, c + 64, h*2, w*2)
         x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
         # x: (batch_size, 1, H, W)
         x = self.upsampler(x)
